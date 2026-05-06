@@ -8,13 +8,14 @@ Shared protocol primitives for the BSV transaction sharding pipeline.
 
 - **`frame`** — v1/v2 BSV-over-UDP wire format: `Encode`, `Decode`, constants, and sentinel errors. See [docs/protocol.md](docs/protocol.md) for the full wire format specification.
 - **`shard`** — Deterministic txid → IPv6 multicast group address derivation. Given a txid and a configured bit width, `Engine` derives a consistent-hash group index and the corresponding `net.UDPAddr`. Also provides `ControlGroupAddr` for BRC-TBD-addressing control-plane multicast groups (beacon, control).
+- **`seqhash`** — XXH64-based hash function for computing `PrevSeq`/`CurSeq` values in BRC-124 frames. Input: `senderIPv6 (16B) ∥ groupIdx (4B BE) ∥ counter (8B BE)` = 28 bytes. Used by the proxy to stamp hash-chain fields in-place.
 - **`sequence`** — Per-shard monotonic sequence counters backed by `sync/atomic`. One independent `atomic.Uint64` per shard group; zero allocation and no contention between shards.
 
 ## Consumers
 
 | Repo | Uses |
 |-------------------------------------------------------------------------------------------|------------------------------|
-| [`bitcoin-shard-proxy`](https://github.com/lightwebinc/bitcoin-shard-proxy) | `frame`, `shard`, `sequence` |
+| [`bitcoin-shard-proxy`](https://github.com/lightwebinc/bitcoin-shard-proxy) | `frame`, `shard`, `seqhash`, `sequence` |
 | [`bitcoin-shard-listener`](https://github.com/lightwebinc/bitcoin-shard-listener) | `frame`, `shard` |
 | [`bitcoin-retry-endpoint`](https://github.com/lightwebinc/bitcoin-retry-endpoint) | `frame`, `shard` |
 

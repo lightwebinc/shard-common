@@ -21,10 +21,8 @@ Offset  Size  Align  Field                 Value / notes
      6     1   —     Frame version         0x02 (BRC-124)
      7     1   —     Reserved              0x00
      8    32   8B    Transaction ID        raw 256-bit txid (internal byte order)
-    40     4   8B    Sender ID             CRC32c of IPv6; 0 = unset
-    44     4   —     Sequence ID           uint32 BE; random flow identifier; 0 = unset
-    48     4   8B    Shard Sequence Number uint32 BE; monotonic counter; 0 = unset
-    52     4   —     Reserved              padding; must be 0x00000000
+    40     8   8B    PrevSeq               XXH64 of previous chain state; 0 = unset
+    48     8   8B    CurSeq                XXH64 of current chain state; 0 = unset
     56    32   8B    Subtree ID            32-byte batch identifier; zeros = unset
     88     4   8B    Payload length        uint32; max 10 MiB
     92     *   —     BSV tx payload        raw serialised transaction bytes
@@ -32,12 +30,10 @@ Offset  Size  Align  Field                 Value / notes
 
 **Alignment verification:**
 | Field | Offset | Offset % 8 |
-|------------|--------|------------|
+|-----------|--------|------------|
 | TXID | 8 | 0 ✓ |
-| SenderID | 40 | 0 ✓ |
-| SequenceID | 44 | 4 |
-| SeqNum | 48 | 0 ✓ |
-| Reserved | 52 | 4 |
+| PrevSeq | 40 | 0 ✓ |
+| CurSeq | 48 | 0 ✓ |
 | SubtreeID | 56 | 0 ✓ |
 | PayLen | 88 | 0 ✓ |
 
@@ -60,20 +56,17 @@ order as used in the BSV P2P protocol — **not** the reversed display order
 shown by block explorers. The top bits of `txid[0:4]` are used by the shard
 engine to derive the multicast group index.
 
-**Sender ID (40:44)** — `uint32` big-endian. CRC32c (Castagnoli polynomial)
-of the original BSV sender's IPv6 address. The proxy stamps this field
-**in-place** before forwarding. Collision risk is minimal on realistic BSV
-networks (~1,000 mining nodes, ~12-20 core transaction processors). `0` means unset.
+**PrevSeq (40:48)** — `uint64` big-endian. XXH64 hash of the previous frame's
+chain state for this `(senderIPv6, groupIdx)` pair. Stamped **in-place** by the
+proxy before forwarding. Equals the `CurSeq` of the immediately preceding frame
+in the chain. A value of `0` means the proxy has not yet stamped the frame (first
+frame in the chain).
 
-**Sequence ID (44:48)** — `uint32` big-endian. A random flow identifier assigned
-by the sender. Combined with SenderID and SeqNum, it uniquely identifies a
-sequenced flow for retransmission requests. Senders reset this value periodically
-(e.g., by packet count or time ~10 minutes). `0` means unset.
-
-**Shard Sequence Number (48:52)** — `uint32` big-endian. A monotonic counter assigned
-by the sender. `0` means unset. Passed through unchanged by the proxy.
-
-**Reserved (52:56)** — `uint32`. Padding for alignment; must be `0x00000000`.
+**CurSeq (48:56)** — `uint64` big-endian. XXH64 hash of the current frame's chain
+state, computed by the proxy as `XXH64(senderIPv6 ∥ groupIdx ∥ counter)` and
+stamped **in-place** before forwarding. A value of `0` means unstamped. Receivers
+use this as the primary cache key for NACK-based retransmission. A mismatch
+between incoming `PrevSeq` and the listener's `lastCurSeq` indicates a gap.
 
 **Subtree ID (56:88)** — 32 bytes. An opaque batch identifier assigned by the
 transaction processor. All-zero bytes mean the field is unset. Passed through
@@ -155,10 +148,11 @@ The proxy processes each incoming datagram in two steps:
    bad magic, unsupported version, oversized payload, or truncated datagram.
    The TxID is extracted to derive the destination multicast group.
 
-2. **Forward** — for BRC-124 frames, overwrite `raw[40:44]` in-place with the
-   CRC32c of the ingress source IPv6 address (`SenderID`) before forwarding.
-   Write the raw bytes to every configured egress interface via `IPV6_MULTICAST_IF`.
-   v1 frames are forwarded verbatim without modification.
+2. **Forward** — for BRC-124 frames, stamp `PrevSeq` at `raw[40:48]` and `CurSeq`
+   at `raw[48:56]` in-place using XXH64 hash chain values per
+   `(senderIPv6, groupIdx)`. Write the raw bytes to every configured egress
+   interface via `IPV6_MULTICAST_IF`. v1 frames are forwarded verbatim without
+   modification.
 
 ---
 
