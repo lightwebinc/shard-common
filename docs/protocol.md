@@ -169,7 +169,7 @@ frames concatenated end-to-end with no additional envelope.
    - **BRC-124:** read 48 more bytes to complete the 92-byte header;
      `PayLen` is at bytes 88–91.
 3. Read exactly `PayLen` bytes (the payload).
-4. Forward the reassembled raw bytes (SenderID stamped at 40–43 for BRC-124).
+4. Forward the reassembled raw bytes (PrevSeq/CurSeq stamped at 40–55 if CurSeq was zero, before processing).
 
 The proxy closes the TCP connection on any protocol violation (bad magic,
 unsupported version byte, or read error).
