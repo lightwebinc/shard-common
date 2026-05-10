@@ -98,6 +98,15 @@ const (
 	// MsgTypeADVERT identifies a periodic beacon advertisement from a retry
 	// endpoint (BRC-126).
 	MsgTypeADVERT byte = 0x20
+
+	// MsgTypeSubtreeAnnounce identifies a BRC-127 subtree group announcement
+	// datagram. Sent periodically by block assemblers to the CtrlGroupSubtreeAnnounce
+	// multicast group.
+	MsgTypeSubtreeAnnounce byte = 0x30
+
+	// SubtreeAnnounceSize is the fixed wire size of a SubtreeAnnounce datagram
+	// in bytes.
+	SubtreeAnnounceSize = 64
 )
 
 // Sentinel errors returned by [Decode].

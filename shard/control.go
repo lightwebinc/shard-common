@@ -9,6 +9,10 @@ import (
 // These occupy the top of the 24-bit index space, ensuring orthogonality
 // with all practical shard configurations (shardBits ≤ 23).
 const (
+	// CtrlGroupSubtreeAnnounce is the reserved group index for the BRC-127
+	// subtree group announcement control channel.
+	CtrlGroupSubtreeAnnounce uint32 = 0xFFFFFC
+
 	// CtrlGroupBeacon is the reserved group index for the ADVERT beacon group.
 	// Used at both site (FF05) and global (FF0E) scope.
 	CtrlGroupBeacon uint32 = 0xFFFFFD

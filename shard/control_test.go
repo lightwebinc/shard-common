@@ -46,12 +46,24 @@ func TestControlGroupAddr_controlChannel(t *testing.T) {
 	}
 }
 
+func TestControlGroupAddr_subtreeAnnounce(t *testing.T) {
+	ip := ControlGroupAddr(0xFF05, [11]byte{}, CtrlGroupSubtreeAnnounce)
+	want := net.ParseIP("FF05::FF:FFFC")
+	if !ip.Equal(want) {
+		t.Errorf("got %v, want %v", ip, want)
+	}
+}
+
 func TestControlGroupAddrOrthogonal(t *testing.T) {
 	// Assert that control indices never collide with shard indices
 	// for shardBits 1–23.
 	for bits := uint(1); bits <= 23; bits++ {
 		e := New(0xFF05, [11]byte{}, bits)
 		numGroups := e.NumGroups()
+		if CtrlGroupSubtreeAnnounce < numGroups {
+			t.Errorf("shardBits=%d: CtrlGroupSubtreeAnnounce (0x%X) < NumGroups (0x%X)",
+				bits, CtrlGroupSubtreeAnnounce, numGroups)
+		}
 		if CtrlGroupBeacon < numGroups {
 			t.Errorf("shardBits=%d: CtrlGroupBeacon (0x%X) < NumGroups (0x%X)",
 				bits, CtrlGroupBeacon, numGroups)

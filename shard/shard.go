@@ -89,3 +89,10 @@ func (e *Engine) ShardBits() uint { return e.shardBits }
 // NumGroups returns the total number of distinct multicast groups in the
 // configured shard space (2^ShardBits).
 func (e *Engine) NumGroups() uint32 { return e.mask + 1 }
+
+// Prefix returns the two-byte IPv6 multicast scope prefix (e.g. 0xFF05).
+func (e *Engine) Prefix() uint16 { return e.mcPrefix }
+
+// MiddleBytes returns bytes 2–12 of the IPv6 multicast address (operator
+// prefix from -mc-base-addr).
+func (e *Engine) MiddleBytes() [11]byte { return e.middleBytes }
