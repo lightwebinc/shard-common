@@ -50,7 +50,9 @@ func TestSubtreeAnnounce_RoundTrip(t *testing.T) {
 func TestSubtreeAnnounce_WireLayout(t *testing.T) {
 	a := makeSubtreeAnnounce()
 	buf := make([]byte, SubtreeAnnounceSize)
-	EncodeSubtreeAnnounce(a, buf)
+	if _, err := EncodeSubtreeAnnounce(a, buf); err != nil {
+		t.Fatalf("EncodeSubtreeAnnounce: %v", err)
+	}
 
 	if buf[6] != MsgTypeSubtreeAnnounce {
 		t.Errorf("buf[6] MsgType = 0x%02X, want 0x%02X", buf[6], MsgTypeSubtreeAnnounce)
@@ -67,7 +69,9 @@ func TestSubtreeAnnounce_TTLZero(t *testing.T) {
 	a := makeSubtreeAnnounce()
 	a.TTL = 0
 	buf := make([]byte, SubtreeAnnounceSize)
-	EncodeSubtreeAnnounce(a, buf)
+	if _, err := EncodeSubtreeAnnounce(a, buf); err != nil {
+		t.Fatalf("EncodeSubtreeAnnounce: %v", err)
+	}
 	got, err := DecodeSubtreeAnnounce(buf)
 	if err != nil {
 		t.Fatalf("DecodeSubtreeAnnounce: %v", err)
@@ -80,7 +84,9 @@ func TestSubtreeAnnounce_TTLZero(t *testing.T) {
 func TestSubtreeAnnounce_BadMagic(t *testing.T) {
 	a := makeSubtreeAnnounce()
 	buf := make([]byte, SubtreeAnnounceSize)
-	EncodeSubtreeAnnounce(a, buf)
+	if _, err := EncodeSubtreeAnnounce(a, buf); err != nil {
+		t.Fatalf("EncodeSubtreeAnnounce: %v", err)
+	}
 	buf[0] = 0x00 // corrupt magic
 	_, err := DecodeSubtreeAnnounce(buf)
 	if err != ErrBadMagic {
