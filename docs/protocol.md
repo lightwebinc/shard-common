@@ -200,4 +200,7 @@ a `reason` label (`decode_error`, `write_error`, or `truncated`).
 | `FrameVerV2` | `0x02` | Current (BRC-124) |
 | `HeaderSizeLegacy` | `44` | Legacy v1 header bytes |
 | `HeaderSize` | `92` | BRC-124 header bytes |
+| `MsgTypeSubtreeAnnounce` | `0x30` | BRC-127 SubtreeAnnounce datagram type |
+| `SubtreeAnnounceSize` | `64` | Fixed SubtreeAnnounce datagram size |
+| `CtrlGroupSubtreeAnnounce` | `0xFFFFFC` | Control-plane subtree announce group |
 

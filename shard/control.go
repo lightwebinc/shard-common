@@ -5,7 +5,7 @@ import (
 	"net"
 )
 
-// Control-plane group index constants (BRC-TBD-addressing).
+// Control-plane group index constants (Multicast Group Address Assignments).
 // These occupy the top of the 24-bit index space, ensuring orthogonality
 // with all practical shard configurations (shardBits ≤ 23).
 const (
