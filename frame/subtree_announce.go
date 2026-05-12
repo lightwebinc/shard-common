@@ -12,7 +12,7 @@ var ErrSubtreeAnnounceTooShort = errors.New("subtree_announce: datagram shorter 
 // SubtreeAnnounce is the in-memory representation of a BRC-127 SubtreeAnnounce
 // datagram. It maps a single SubtreeID to a GroupID with a TTL.
 type SubtreeAnnounce struct {
-	SubtreeID [32]byte // SHA-256 subtree root hash (from BRC-124 frame header)
+	SubtreeID [32]byte // SHA-256 subtree root hash (from BRC-124/BRC-128 frame header)
 	GroupID   [16]byte // 128-bit group identifier, big-endian
 	Epoch     uint32   // Unix timestamp (seconds) when this announcement was created
 	TTL       uint16   // Validity in seconds; 0 = use listener default

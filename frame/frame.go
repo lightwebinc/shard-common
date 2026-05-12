@@ -1,7 +1,7 @@
-// Package frame defines the BSV-over-UDP BRC-12 (v1) and BRC-124 wire formats
+// Package frame defines the BSV-over-UDP BRC-12 (legacy) and BRC-124/BRC-128 wire formats
 // used by the BSV transaction sharding pipeline.
 //
-// # Wire format — v1 (44 bytes, legacy BRC-12)
+// # Wire format — BRC-12 (legacy, 44 bytes)
 //
 // All multi-byte integers are big-endian.
 //
@@ -15,7 +15,7 @@
 //	    40     4  Payload length   uint32
 //	    44     *  BSV tx payload
 //
-// # Wire format — BRC-124 (92 bytes)
+// # Wire format — BRC-124/BRC-128 (92 bytes)
 //
 // All multi-byte integers are big-endian.
 //
@@ -23,7 +23,7 @@
 //	------  ----  -----  -----          -------------
 //	     0     4   —     Network magic  0xE3E1F3E8 (BSV mainnet P2P magic)
 //	     4     2   —     Protocol ver   0x02BF = 703 (BSV node version baseline)
-//	     6     1   —     Frame version  0x02 (BRC-124)
+//	     6     1   —     Frame version  0x02 (BRC-124/BRC-128)
 //	     7     1   —     Reserved       0x00
 //	     8    32   8B    TxID           raw 256-bit txid (NOT display-reversed)
 //	    40     8   8B    PrevSeq        XXH64 of previous chain state; 0 = unset
@@ -38,11 +38,11 @@
 // and stamped in-place before multicast forwarding. Senders set both to 0.
 // Chain breaks (PrevSeq ≠ expected) indicate missing frames, triggering NACK.
 //
-// # v1 handling
+// # BRC-12 handling
 //
-// [Decode] accepts both v1 and BRC-124 frames. v1 frames are decoded into a [Frame]
+// [Decode] accepts both BRC-12 and BRC-124/BRC-128 frames. BRC-12 frames are decoded into a [Frame]
 // with [Version] = [FrameVerV1] and zero-valued BRC-124-only fields.
-// The forwarder forwards v1 frames verbatim (no re-encoding).
+// The forwarder forwards BRC-12 frames verbatim (no re-encoding).
 // Unknown versions return [ErrBadVer].
 //
 // # BSV transaction format compatibility
@@ -70,17 +70,17 @@ const (
 	// version baseline that introduced the large-block policy.
 	ProtoVer uint16 = 0x02BF
 
-	// FrameVerV1 is the legacy v1 frame version (44-byte header). [Decode]
-	// accepts v1 frames and returns them with zero-valued BRC-124-only fields.
+	// FrameVerV1 is the legacy BRC-12 frame version (44-byte header). [Decode]
+	// accepts BRC-12 frames and returns them with zero-valued BRC-124-only fields.
 	FrameVerV1 byte = 0x01
 
-	// FrameVerV2 is the current BRC-124 frame version.
+	// FrameVerV2 is the current BRC-124/BRC-128 frame version.
 	FrameVerV2 byte = 0x02
 
-	// HeaderSizeLegacy is the fixed size of the legacy v1 (BRC-12) frame header.
+	// HeaderSizeLegacy is the fixed size of the legacy BRC-12 frame header.
 	HeaderSizeLegacy = 44
 
-	// HeaderSize is the total size of the BRC-124 frame header in bytes.
+	// HeaderSize is the total size of the BRC-124/BRC-128 frame header in bytes.
 	// Payload begins at offset HeaderSize.
 	HeaderSize = 92
 
@@ -114,25 +114,24 @@ var (
 	// ErrBadMagic is returned when the first four bytes do not match MagicBSV.
 	ErrBadMagic = errors.New("frame: invalid BSV magic bytes")
 
-	// ErrBadVer is returned when the frame version byte is neither FrameVerV1
-	// nor FrameVerV2.
+	// ErrBadVer is returned when the frame version byte is neither BRC-12 nor BRC-124/BRC-128.
 	ErrBadVer = errors.New("frame: unsupported frame version")
 
 	// ErrTooShort is returned when the datagram is shorter than the minimum
-	// header size ([HeaderSizeLegacy] for v1, [HeaderSize] for BRC-124).
+	// header size ([HeaderSizeLegacy] for BRC-12, [HeaderSize] for BRC-124/BRC-128).
 	ErrTooShort = errors.New("frame: datagram shorter than header")
 )
 
-// Frame is the parsed in-memory representation of a v1 or BRC-124 BSV datagram.
+// Frame is the parsed in-memory representation of a BRC-12 or BRC-124/BRC-128 BSV datagram.
 //
 // Payload is a zero-copy slice pointing into the buffer passed to [Decode];
 // the buffer must remain valid for the lifetime of the Frame.
 type Frame struct {
 	Version   byte     // FrameVerV1 or FrameVerV2 — set by Decode
 	TxID      [32]byte // Raw 256-bit transaction ID (internal byte order)
-	PrevSeq   uint64   // XXH64 of previous chain state; 0 = unset (always 0 for v1)
-	CurSeq    uint64   // XXH64 of current chain state; 0 = unset (always 0 for v1)
-	SubtreeID [32]byte // 32-byte batch identifier; zeros = unset (always zero for v1)
+	PrevSeq   uint64   // XXH64 of previous chain state; 0 = unset (always 0 for BRC-12)
+	CurSeq    uint64   // XXH64 of current chain state; 0 = unset (always 0 for BRC-12)
+	SubtreeID [32]byte // 32-byte batch identifier; zeros = unset (always zero for BRC-12)
 	Payload   []byte   // Raw serialised BSV transaction
 }
 
@@ -160,13 +159,13 @@ func Encode(f *Frame, buf []byte) (int, error) {
 	return total, nil
 }
 
-// Decode parses a raw v1 or v2 datagram into a Frame.
+// Decode parses a raw BRC-12 or BRC-124/BRC-128 datagram into a Frame.
 //
 // The returned Frame.Payload is a zero-copy slice into buf. The caller must
 // not modify or reuse buf while the Frame is in scope.
 //
-// v1 frames (FrameVer 0x01) are decoded with [Version] = FrameVerV1 and
-// zero-valued PrevSeq, CurSeq, and SubtreeID. The forwarder forwards v1
+// BRC-12 frames (FrameVer 0x01) are decoded with [Version] = FrameVerV1 and
+// zero-valued PrevSeq, CurSeq, and SubtreeID. The forwarder forwards BRC-12
 // frames verbatim (no re-encoding).
 //
 // Unknown versions return [ErrBadVer].
@@ -194,7 +193,7 @@ func Decode(buf []byte) (*Frame, error) {
 	}
 }
 
-// decodeV1 parses the 44-byte v1 header. BRC-124 fields default to zero.
+// decodeV1 parses the 44-byte BRC-12 (legacy) header. BRC-124/BRC-128 fields default to zero.
 func decodeV1(buf []byte) (*Frame, error) {
 	if len(buf) < HeaderSizeLegacy {
 		return nil, ErrTooShort
@@ -209,7 +208,7 @@ func decodeV1(buf []byte) (*Frame, error) {
 	return f, nil
 }
 
-// decodeV2 parses the 92-byte BRC-124 header.
+// decodeV2 parses the 92-byte BRC-124/BRC-128 header.
 func decodeV2(buf []byte) (*Frame, error) {
 	if len(buf) < HeaderSize {
 		return nil, ErrTooShort

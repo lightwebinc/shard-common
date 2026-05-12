@@ -1,5 +1,5 @@
 // Package seqhash provides the hash function used to compute PrevSeq and
-// CurSeq values in BRC-124 frames.
+// CurSeq values in BRC-124/BRC-128 frames.
 //
 // Each frame's CurSeq is computed by the proxy as:
 //

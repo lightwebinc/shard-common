@@ -174,9 +174,9 @@ func TestEmptyPayload(t *testing.T) {
 	}
 }
 
-// ── v1 frame decode ───────────────────────────────────────────────────────────
+// ── BRC-12 frame decode ───────────────────────────────────────────────────────────
 
-// buildV1Frame assembles a minimal valid v1 datagram.
+// buildV1Frame assembles a minimal valid BRC-12 (legacy) datagram.
 func buildV1Frame(txidByte byte, payload []byte) []byte {
 	buf := make([]byte, HeaderSizeLegacy+len(payload))
 	binary.BigEndian.PutUint32(buf[0:4], MagicBSV)
@@ -220,7 +220,7 @@ func TestDecodeV1ZeroedV2Fields(t *testing.T) {
 		t.Errorf("CurSeq = %d, want 0", f.CurSeq)
 	}
 	if f.SubtreeID != ([32]byte{}) {
-		t.Error("SubtreeID should be all zeros for v1")
+		t.Error("SubtreeID should be all zeros for BRC-12")
 	}
 }
 
@@ -228,7 +228,7 @@ func TestDecodeV1EmptyPayload(t *testing.T) {
 	raw := buildV1Frame(0x77, nil)
 	f, err := Decode(raw)
 	if err != nil {
-		t.Fatalf("Decode v1 empty payload: %v", err)
+		t.Fatalf("Decode BRC-12 empty payload: %v", err)
 	}
 	if len(f.Payload) != 0 {
 		t.Errorf("Payload len = %d, want 0", len(f.Payload))
@@ -246,7 +246,7 @@ func TestDecodeV1Truncated(t *testing.T) {
 // ── Error paths ───────────────────────────────────────────────────────────────
 
 func TestDecodeErrTooShort(t *testing.T) {
-	// Shorter than even the v1 header
+	// Shorter than even the BRC-12 header
 	_, err := Decode(make([]byte, HeaderSizeLegacy-1))
 	if err != ErrTooShort {
 		t.Errorf("want ErrTooShort, got %v", err)
@@ -254,7 +254,7 @@ func TestDecodeErrTooShort(t *testing.T) {
 }
 
 func TestDecodeV2ErrTooShort(t *testing.T) {
-	// Long enough for v1 but not BRC-124
+	// Long enough for BRC-12 but not BRC-124
 	buf := make([]byte, HeaderSizeLegacy)
 	binary.BigEndian.PutUint32(buf[0:4], MagicBSV)
 	buf[6] = FrameVerV2

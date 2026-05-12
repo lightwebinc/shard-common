@@ -18,14 +18,14 @@ Offset  Size  Align  Field                 Value / notes
 ------  ----  -----  -----                 -------------
      0     4   —     Network magic         0xE3E1F3E8 (BSV mainnet P2P magic)
      4     2   —     Protocol ver          0x02BF = 703
-     6     1   —     Frame version         0x02 (BRC-124)
+     6     1   —     Frame version         0x02 (BRC-124/BRC-128)
      7     1   —     Reserved              0x00
      8    32   8B    Transaction ID        raw 256-bit txid (internal byte order)
     40     8   8B    PrevSeq               XXH64 of previous chain state; 0 = unset
     48     8   8B    CurSeq                XXH64 of current chain state; 0 = unset
     56    32   8B    Subtree ID            32-byte batch identifier; zeros = unset
     88     4   8B    Payload length        uint32; max 10 MiB
-    92     *   —     BSV tx payload        raw serialised transaction bytes
+    92     *   —     BSV tx payload        raw serialised transaction bytes (BRC-12 or BRC-30 Extended Format for BRC-128)
 ```
 
 **Alignment verification:**
@@ -46,8 +46,8 @@ Frames that do not start with this value are rejected.
 baseline that introduced the large-block policy. This field is informational;
 receivers do not validate it.
 
-**Frame version (6)** — `0x02` for BRC-124, `0x01` for v1 (see §3). Any other
-value is rejected. Both v1 and BRC-124 frames are forwarded verbatim.
+**Frame version (6)** — `0x02` for BRC-124/BRC-128, `0x01` for BRC-12 (legacy, see §3). Any other
+value is rejected. Both BRC-12 and BRC-124/BRC-128 frames are forwarded verbatim.
 
 **Reserved (7)** — Must be `0x00`. Reserved for future use.
 
@@ -74,15 +74,18 @@ unchanged by the proxy.
 **Payload length (88:92)** — `uint32` big-endian. The number of payload bytes
 immediately following the header. The application determines the maximum accepted size.
 
-**Payload (92+)** — Raw serialised BSV transaction. Same format as the BSV P2P
-`tx` message payload (version LE32 + inputs + outputs + locktime LE32). No P2P
-message envelope wraps it.
+**Payload (92+)** — Raw serialised BSV transaction (BRC-12) or BRC-30 Extended
+Format (EF) transaction (BRC-128). Same format as the BSV P2P `tx` message
+payload (version LE32 + inputs + outputs + locktime LE32) for BRC-12, or the
+EF serialisation for BRC-30. No P2P message envelope wraps it. BRC-128 payloads
+are self-identifying via a 6-byte marker at payload bytes 4–9
+(`0x000000000000EF`); infrastructure components are payload-agnostic.
 
 ---
 
-## 3. Legacy BRC-12 Frame Format (v1)
+## 3. Legacy BRC-12 Frame Format
 
-Legacy v1 frames use a 44-byte header and carry no BRC-124 fields.
+Legacy BRC-12 frames use a 44-byte header and carry no BRC-124 fields.
 The proxy accepts them and forwards them verbatim without modification.
 
 ```text
@@ -98,8 +101,8 @@ Offset  Size  Field
 ```
 
 **TCP ingress:** the TCP reader reads 44 bytes first to detect the version, then
-completes the header read if BRC-124 (48 more bytes). No separate port is needed
-for v1 and BRC-124 — both versions share the same listener.
+completes the header read if BRC-124/BRC-128 (48 more bytes). No separate port is needed
+for BRC-12 and BRC-124/BRC-128 — both formats share the same listener.
 
 ---
 
@@ -143,7 +146,7 @@ additional groups; no existing subscriptions become invalid.
 
 The proxy processes each incoming datagram in two steps:
 
-1. **Decode** — parse the frame header (v1 or BRC-124); drop with a debug log on
+1. **Decode** — parse the frame header (BRC-12 or BRC-124/BRC-128); drop with a debug log on
    bad magic, unsupported version, oversized payload, or truncated datagram.
    The TxID is extracted to derive the destination multicast group.
 
@@ -151,7 +154,7 @@ The proxy processes each incoming datagram in two steps:
    the sender has pre-stamped the frame and it is forwarded verbatim. If `CurSeq`
    is zero the proxy stamps `PrevSeq` at `raw[40:48]` and `CurSeq` at `raw[48:56]`
    in-place using XXH64 hash chain values per `(senderIPv6, groupIdx)`. Write the
-   raw bytes to every configured egress interface via `IPV6_MULTICAST_IF`. v1
+   raw bytes to every configured egress interface via `IPV6_MULTICAST_IF`. BRC-12
    frames are always forwarded verbatim without modification.
 
 ---
@@ -159,14 +162,14 @@ The proxy processes each incoming datagram in two steps:
 ## 7. TCP Ingress
 
 When `-tcp-listen-port` is non-zero, the proxy also accepts TCP connections for
-reliable frame delivery. The TCP wire format is identical to UDP: v1 or BRC-124
+reliable frame delivery. The TCP wire format is identical to UDP: BRC-12, BRC-124, or BRC-128
 frames concatenated end-to-end with no additional envelope.
 
 **Read sequence per frame:**
-1. Read 44 bytes (minimum header, sufficient for both v1 and the start of BRC-124).
+1. Read 44 bytes (minimum header, sufficient for both BRC-12 and the start of BRC-124/BRC-128).
 2. Inspect `FrameVer` at byte 6.
-   - **v1:** header is complete; `PayLen` is at bytes 40–43.
-   - **BRC-124:** read 48 more bytes to complete the 92-byte header;
+   - **BRC-12:** header is complete; `PayLen` is at bytes 40–43.
+   - **BRC-124/BRC-128:** read 48 more bytes to complete the 92-byte header;
      `PayLen` is at bytes 88–91.
 3. Read exactly `PayLen` bytes (the payload).
 4. Forward the reassembled raw bytes (PrevSeq/CurSeq stamped at 40–55 if CurSeq was zero, before processing).
@@ -181,8 +184,8 @@ unsupported version byte, or read error).
 | Condition | UDP | TCP |
 |----------------------------------------|----------------------------------|----------------------------------|
 | Bad magic | datagram silently dropped | connection closed |
-| Unknown frame version (not v1/BRC-124) | datagram silently dropped | connection closed |
-| Truncated datagram | datagram silently dropped | read error → connection closed |
+| Unknown frame version (not BRC-12/BRC-124)      | datagram silently dropped | connection closed                |
+| Truncated datagram                     | datagram silently dropped | read error → connection closed   |
 | Egress write error | logged; next interface attempted | logged; next interface attempted |
 
 All drops are counted in the `bsp_packets_dropped_total` Prometheus metric with
@@ -197,10 +200,9 @@ a `reason` label (`decode_error`, `write_error`, or `truncated`).
 | `MagicBSV` | `0xE3E1F3E8` | BSV mainnet P2P magic |
 | `ProtoVer` | `0x02BF` | Protocol version 703 |
 | `FrameVerV1` | `0x01` | Legacy BRC-12; accepted, forwarded verbatim |
-| `FrameVerV2` | `0x02` | Current (BRC-124) |
-| `HeaderSizeLegacy` | `44` | Legacy v1 header bytes |
-| `HeaderSize` | `92` | BRC-124 header bytes |
+| `FrameVerV2` | `0x02` | Current (BRC-124/BRC-128) |
+| `HeaderSizeLegacy` | `44` | Legacy BRC-12 header bytes |
+| `HeaderSize`          | `92`           | BRC-124/BRC-128 header bytes                |
 | `MsgTypeSubtreeAnnounce` | `0x30` | BRC-127 SubtreeAnnounce datagram type |
 | `SubtreeAnnounceSize` | `64` | Fixed SubtreeAnnounce datagram size |
 | `CtrlGroupSubtreeAnnounce` | `0xFFFFFC` | Control-plane subtree announce group |
-

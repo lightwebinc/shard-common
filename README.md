@@ -14,14 +14,14 @@ and `bitcoin-subtx-generator`.
 
 | Package    | Purpose                                                                 |
 | ---------- | ----------------------------------------------------------------------- |
-| `frame`    | BRC-12/BRC-124 wire format codec; BRC-127 SubtreeAnnounce codec        |
+| `frame`    | BRC-12/BRC-124/BRC-128 wire format codec; BRC-127 SubtreeAnnounce codec |
 | `shard`    | TxID → IPv6 multicast group derivation (consistent-hash); control groups |
 | `seqhash`  | XXH64 hash chain for PrevSeq/CurSeq stamping                           |
 | `sequence` | Per-shard monotonic counters (`sync/atomic`, zero-alloc)                |
 
 ## Documentation
 
-- [Wire Protocol Specification](docs/protocol.md) — BRC-124 frame format, legacy v1, shard derivation, proxy forward rules
+- [Wire Protocol Specification](docs/protocol.md) — BRC-124/BRC-128 frame format, legacy BRC-12, shard derivation, proxy forward rules
 
 ## Requirements
 
