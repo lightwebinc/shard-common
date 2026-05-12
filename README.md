@@ -6,27 +6,33 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/lightwebinc/bitcoin-shard-common)](https://goreportcard.com/report/github.com/lightwebinc/bitcoin-shard-common)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
-Shared protocol primitives for the BSV transaction sharding pipeline.
+Shared protocol primitives for the BSV transaction sharding pipeline. Imported
+by `bitcoin-shard-proxy`, `bitcoin-shard-listener`, `bitcoin-retry-endpoint`,
+and `bitcoin-subtx-generator`.
 
 ## Packages
 
-- **`frame`** — BRC-12/BRC-124 BSV-over-UDP wire format: `Encode`, `Decode`, constants, and sentinel errors. Also includes the BRC-127 `SubtreeAnnounce` codec (`EncodeSubtreeAnnounce`, `DecodeSubtreeAnnounce`). See [docs/protocol.md](docs/protocol.md) for the full wire format specification.
-- **`shard`** — Deterministic txid → IPv6 multicast group address derivation. Given a txid and a configured bit width, `Engine` derives a consistent-hash group index and the corresponding `net.UDPAddr`. Also provides `ControlGroupAddr` for control-plane multicast groups (beacon, subtree announce, control).
-- **`seqhash`** — XXH64-based hash function for computing `PrevSeq`/`CurSeq` values in BRC-124 frames. Input: `senderIPv6 (16B) ∥ groupIdx (4B BE) ∥ counter (8B BE)` = 28 bytes. Used by the proxy to stamp hash-chain fields in-place.
-- **`sequence`** — Per-shard monotonic sequence counters backed by `sync/atomic`. One independent `atomic.Uint64` per shard group; zero allocation and no contention between shards.
+| Package    | Purpose                                                                 |
+| ---------- | ----------------------------------------------------------------------- |
+| `frame`    | BRC-12/BRC-124 wire format codec; BRC-127 SubtreeAnnounce codec        |
+| `shard`    | TxID → IPv6 multicast group derivation (consistent-hash); control groups |
+| `seqhash`  | XXH64 hash chain for PrevSeq/CurSeq stamping                           |
+| `sequence` | Per-shard monotonic counters (`sync/atomic`, zero-alloc)                |
 
-## Consumers
+## Documentation
 
-| Repo | Uses |
-|-------------------------------------------------------------------------------------------|------------------------------|
-| [`bitcoin-shard-proxy`](https://github.com/lightwebinc/bitcoin-shard-proxy) | `frame`, `shard`, `seqhash` |
-| [`bitcoin-shard-listener`](https://github.com/lightwebinc/bitcoin-shard-listener) | `frame`, `shard` |
-| [`bitcoin-subtx-generator`](https://github.com/lightwebinc/bitcoin-subtx-generator) | `frame` |
-| [`bitcoin-retry-endpoint`](https://github.com/lightwebinc/bitcoin-retry-endpoint) | `frame`, `shard` |
+- [Wire Protocol Specification](docs/protocol.md) — BRC-124 frame format, legacy v1, shard derivation, proxy forward rules
 
 ## Requirements
 
 - Go 1.25 or later
+
+## Build
+
+```bash
+go build ./...
+go test ./...
+```
 
 ## License
 
