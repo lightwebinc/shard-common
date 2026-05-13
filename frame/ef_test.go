@@ -1,0 +1,54 @@
+package frame
+
+import "testing"
+
+func TestIsEF(t *testing.T) {
+	tests := []struct {
+		name    string
+		payload []byte
+		want    bool
+	}{
+		{
+			name:    "valid EF payload",
+			payload: []byte{0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xEF, 0x01, 0x02},
+			want:    true,
+		},
+		{
+			name:    "raw BRC-12 (no marker)",
+			payload: []byte{0x02, 0x00, 0x00, 0x00, 0x01, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0x00, 0x00},
+			want:    false,
+		},
+		{
+			name:    "marker at wrong offset",
+			payload: []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0xEF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
+			want:    false,
+		},
+		{
+			name:    "too short",
+			payload: []byte{0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
+			want:    false,
+		},
+		{
+			name:    "empty",
+			payload: nil,
+			want:    false,
+		},
+		{
+			name:    "exactly 10 bytes with marker",
+			payload: []byte{0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xEF},
+			want:    true,
+		},
+		{
+			name:    "EF byte not 0xEF",
+			payload: []byte{0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xEE, 0x00, 0x00},
+			want:    false,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := IsEF(tc.payload); got != tc.want {
+				t.Errorf("IsEF(%x) = %v, want %v", tc.payload, got, tc.want)
+			}
+		})
+	}
+}
