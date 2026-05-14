@@ -57,15 +57,16 @@ shown by block explorers. The top bits of `txid[0:4]` are used by the shard
 engine to derive the multicast group index.
 
 **PrevSeq (40:48)** — `uint64` big-endian. XXH64 hash of the previous frame's
-chain state for this `(senderIPv6, groupIdx)` pair. Equals the `CurSeq` of the
-immediately preceding frame in the chain. Set either by the sender or stamped
-in-place by the proxy (see below). A value of `0` means first frame or unstamped.
+chain state for this `(senderIPv6, groupIdx, subtreeID)` triple. Equals the
+`CurSeq` of the immediately preceding frame in the chain. Set either by the
+sender or stamped in-place by the proxy (see below). A value of `0` means
+first frame or unstamped.
 
 **CurSeq (48:56)** — `uint64` big-endian. XXH64 hash of the current frame's chain
 state. Set either by the sender or stamped in-place by the proxy (see below).
 A value of `0` means unstamped. Receivers use this as the primary cache key for
 NACK-based retransmission. A mismatch between incoming `PrevSeq` and the
-listener's `lastCurSeq` indicates a gap.
+listener's `lastCurSeq` (per `(groupIdx, subtreeID)` chain) indicates a gap.
 
 **Subtree ID (56:88)** — 32 bytes. An opaque batch identifier assigned by the
 transaction processor. All-zero bytes mean the field is unset. Passed through
@@ -154,9 +155,10 @@ The proxy processes each incoming datagram in two steps:
 2. **Forward** — for BRC-124 frames, if `CurSeq` (`raw[48:56]`) is **non-zero**
    the sender has pre-stamped the frame and it is forwarded verbatim. If `CurSeq`
    is zero the proxy stamps `PrevSeq` at `raw[40:48]` and `CurSeq` at `raw[48:56]`
-   in-place using XXH64 hash chain values per `(senderIPv6, groupIdx)`. Write the
-   raw bytes to every configured egress interface via `IPV6_MULTICAST_IF`. BRC-12
-   frames are always forwarded verbatim without modification.
+   in-place using XXH64 hash chain values per `(senderIPv6, groupIdx, subtreeID)`;
+   `SubtreeID` is read from `raw[56:88]` (zeros if unset). Write the raw bytes to
+   every configured egress interface via `IPV6_MULTICAST_IF`. BRC-12 frames are
+   always forwarded verbatim without modification.
 
 ---
 
