@@ -5,13 +5,17 @@ import (
 	"net"
 )
 
-// Control-plane group index constants (Multicast Group Address Assignments).
-// These occupy the top of the 16-bit shard space, ensuring orthogonality
-// with all practical shard configurations (shardBits ≤ 15).
+// Network service group index constants (BRC-129 Multicast Group Address
+// Assignments). Network services occupy 0xF800–0xFFFF (2,048 indices);
+// current assignments are allocated from the top of that range.
 const (
 	// CtrlGroupSubtreeAnnounce is the reserved group index for the BRC-127
+	// subtree announcement control channel (Merkle subtree roll-ups).
+	CtrlGroupSubtreeAnnounce uint16 = 0xFFFB
+
+	// CtrlGroupSubtreeGroupAnnounce is the reserved group index for the BRC-127
 	// subtree group announcement control channel.
-	CtrlGroupSubtreeAnnounce uint16 = 0xFFFC
+	CtrlGroupSubtreeGroupAnnounce uint16 = 0xFFFC
 
 	// CtrlGroupBeacon is the reserved group index for the ADVERT beacon group.
 	// Used at both site (FF05) and global (FF0E) scope.

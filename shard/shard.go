@@ -6,7 +6,7 @@
 // The derivation is pure arithmetic: no allocation, no locks, safe for
 // concurrent use by multiple goroutines without synchronisation.
 //
-// Given a 256-bit txid and a configured bit width N (1–15), the group index
+// Given a 256-bit txid and a configured bit width N (1–12), the group index
 // is the top N bits of the first 32-bit word of the txid:
 //
 //	groupIndex = (txid[0:4] as uint32) >> (32 - N)
@@ -29,9 +29,9 @@
 // override the group-id for testing or private deployments via configuration,
 // but the on-wire default is 0x000B for IANA conformance.
 //
-// Control-plane reserved indices occupy the top of the 16-bit shard space
-// (see [CtrlGroupSubtreeAnnounce], [CtrlGroupBeacon], [CtrlGroupControl]),
-// so practical shardBits values are bounded at 15.
+// The 16-bit index space is divided into three zones (see BRC-129):
+// shard groups 0x0000–0x0FFF, free space 0x1000–0xF7FF, network services
+// 0xF800–0xFFFF. shardBits is therefore bounded at 12.
 package shard
 
 import (
@@ -60,7 +60,7 @@ type Engine struct {
 //   - groupID is the 16-bit IANA group-id occupying bytes 12-13 of the
 //     address (default [DefaultGroupID] = 0x000B for Bitcoin).
 //   - shardBits is the number of bits from the txid prefix that form the
-//     group key. Must be in [1, 15].
+//     group key. Must be in [1, 12].
 func New(mcPrefix uint16, groupID uint16, shardBits uint) *Engine {
 	return &Engine{
 		mcPrefix:  mcPrefix,

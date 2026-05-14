@@ -47,6 +47,14 @@ func TestControlGroupAddr_controlChannel(t *testing.T) {
 
 func TestControlGroupAddr_subtreeAnnounce(t *testing.T) {
 	ip := ControlGroupAddr(0xFF05, DefaultGroupID, CtrlGroupSubtreeAnnounce)
+	want := net.ParseIP("FF05::B:FFFB")
+	if !ip.Equal(want) {
+		t.Errorf("got %v, want %v", ip, want)
+	}
+}
+
+func TestControlGroupAddr_subtreeGroupAnnounce(t *testing.T) {
+	ip := ControlGroupAddr(0xFF05, DefaultGroupID, CtrlGroupSubtreeGroupAnnounce)
 	want := net.ParseIP("FF05::B:FFFC")
 	if !ip.Equal(want) {
 		t.Errorf("got %v, want %v", ip, want)
@@ -55,8 +63,8 @@ func TestControlGroupAddr_subtreeAnnounce(t *testing.T) {
 
 func TestControlGroupAddrOrthogonal(t *testing.T) {
 	// Assert that control indices never collide with shard indices
-	// for shardBits 1–15.
-	for bits := uint(1); bits <= 15; bits++ {
+	// for shardBits 1–12.
+	for bits := uint(1); bits <= 12; bits++ {
 		e := New(0xFF05, DefaultGroupID, bits)
 		numGroups := uint16(e.NumGroups())
 		if e.NumGroups() <= 0xFFFF && CtrlGroupSubtreeAnnounce < numGroups {
