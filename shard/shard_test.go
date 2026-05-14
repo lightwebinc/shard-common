@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func engine8() *Engine { return New(0xFF05, [11]byte{}, 8) }
+func engine8() *Engine { return New(0xFF05, DefaultGroupID, 8) }
 
 func TestGroupIndexTopBits(t *testing.T) {
 	e := engine8()
@@ -25,11 +25,11 @@ func TestGroupIndexZero(t *testing.T) {
 }
 
 func TestGroupIndexMaxBits(t *testing.T) {
-	e := New(0xFF05, [11]byte{}, 24)
+	e := New(0xFF05, DefaultGroupID, 15)
 	var txid [32]byte
-	txid[0], txid[1], txid[2] = 0xFF, 0xFF, 0xFF
-	if got := e.GroupIndex(&txid); got != 0xFFFFFF {
-		t.Errorf("GroupIndex = 0x%X, want 0xFFFFFF", got)
+	txid[0], txid[1] = 0xFF, 0xFE // top 15 bits = 0x7FFF
+	if got := e.GroupIndex(&txid); got != 0x7FFF {
+		t.Errorf("GroupIndex = 0x%X, want 0x7FFF", got)
 	}
 }
 
@@ -40,11 +40,11 @@ func TestNumGroups(t *testing.T) {
 	}{
 		{1, 2},
 		{8, 256},
-		{16, 65536},
-		{24, 16777216},
+		{12, 4096},
+		{15, 32768},
 	}
 	for _, c := range cases {
-		e := New(0xFF05, [11]byte{}, c.bits)
+		e := New(0xFF05, DefaultGroupID, c.bits)
 		if got := e.NumGroups(); got != c.groups {
 			t.Errorf("bits=%d: NumGroups=%d, want %d", c.bits, got, c.groups)
 		}
@@ -61,21 +61,38 @@ func TestAddrPrefix(t *testing.T) {
 
 func TestAddrGroupIndexPlacement(t *testing.T) {
 	e := engine8()
-	addr := e.Addr(0x1A2B3C, 9001)
-	if addr.IP[13] != 0x1A || addr.IP[14] != 0x2B || addr.IP[15] != 0x3C {
-		t.Errorf("group bytes = %02X%02X%02X, want 1A2B3C",
-			addr.IP[13], addr.IP[14], addr.IP[15])
+	addr := e.Addr(0x2B3C, 9001)
+	if addr.IP[14] != 0x2B || addr.IP[15] != 0x3C {
+		t.Errorf("group bytes = %02X%02X, want 2B3C",
+			addr.IP[14], addr.IP[15])
 	}
 }
 
-func TestAddrMiddleBytes(t *testing.T) {
-	var middle [11]byte
-	middle[0] = 0xDE
-	middle[10] = 0xAD
-	e := New(0xFF05, middle, 8)
+func TestAddrGroupID(t *testing.T) {
+	e := New(0xFF05, 0xCAFE, 8)
 	addr := e.Addr(0, 9001)
-	if addr.IP[2] != 0xDE || addr.IP[12] != 0xAD {
-		t.Errorf("middle bytes not placed correctly: ip=%v", addr.IP)
+	if addr.IP[12] != 0xCA || addr.IP[13] != 0xFE {
+		t.Errorf("group-id bytes = %02X%02X, want CAFE", addr.IP[12], addr.IP[13])
+	}
+}
+
+func TestAddrIANABoundaryZero(t *testing.T) {
+	// Bytes [2:12] must be zero per IANA 96-bit boundary.
+	e := New(0xFF05, DefaultGroupID, 8)
+	addr := e.Addr(0xAB, 9001)
+	for i := 2; i < 12; i++ {
+		if addr.IP[i] != 0 {
+			t.Errorf("byte %d = 0x%02X, want 0 (IANA 96-bit boundary)", i, addr.IP[i])
+		}
+	}
+}
+
+func TestAddrDefaultBitcoinAllocation(t *testing.T) {
+	e := New(0xFF05, DefaultGroupID, 8)
+	addr := e.Addr(0, 9001)
+	want := net.ParseIP("FF05::B:0")
+	if !addr.IP.Equal(want) {
+		t.Errorf("got %v, want %v", addr.IP, want)
 	}
 }
 
@@ -101,8 +118,8 @@ func TestConsistentHashing(t *testing.T) {
 	var txid [32]byte
 	txid[0] = 0x80 // top bit set
 
-	e4 := New(0xFF05, [11]byte{}, 4)
-	e5 := New(0xFF05, [11]byte{}, 5)
+	e4 := New(0xFF05, DefaultGroupID, 4)
+	e5 := New(0xFF05, DefaultGroupID, 5)
 
 	g4 := e4.GroupIndex(&txid)
 	g5 := e5.GroupIndex(&txid)
@@ -125,8 +142,15 @@ func TestAddrIsIPv6(t *testing.T) {
 }
 
 func TestShardBitsAccessor(t *testing.T) {
-	e := New(0xFF05, [11]byte{}, 12)
+	e := New(0xFF05, DefaultGroupID, 12)
 	if e.ShardBits() != 12 {
 		t.Errorf("ShardBits = %d, want 12", e.ShardBits())
+	}
+}
+
+func TestGroupIDAccessor(t *testing.T) {
+	e := New(0xFF05, 0x1234, 8)
+	if e.GroupID() != 0x1234 {
+		t.Errorf("GroupID = 0x%04X, want 0x1234", e.GroupID())
 	}
 }

@@ -6,7 +6,7 @@
 // The derivation is pure arithmetic: no allocation, no locks, safe for
 // concurrent use by multiple goroutines without synchronisation.
 //
-// Given a 256-bit txid and a configured bit width N (1–24), the group index
+// Given a 256-bit txid and a configured bit width N (1–15), the group index
 // is the top N bits of the first 32-bit word of the txid:
 //
 //	groupIndex = (txid[0:4] as uint32) >> (32 - N)
@@ -16,14 +16,22 @@
 // group splits into exactly two child groups. Subscribers only need to join
 // additional groups; no existing subscriptions become invalid.
 //
-// # Address layout
+// # Address layout (IANA-aligned)
 //
-//	bits [127:112]   FFsc   multicast prefix + scope nibble  (16 bits)
-//	bits [111:24]    0x00   zero padding                     (88 bits)
-//	bits [23:0]      index  group index                      (24 bits max)
+//	bits [127:112]   FF0X  multicast prefix + scope nibble  (16 bits)
+//	bits [111: 32]   0x00  zero (IANA 96-bit boundary)      (80 bits)
+//	bits [ 31: 16]   GID   IANA group-id (default 0x000B)   (16 bits)
+//	bits [ 15:  0]   IDX   shard index                      (16 bits)
 //
-// The group index is placed in the three lowest bytes of the address
-// (bytes 13–15), allowing up to 24-bit shard spaces (16,777,216 groups).
+// Bytes: [0:2]=scope, [2:12]=zero, [12:14]=group-id, [14:16]=shard index.
+//
+// The IANA Bitcoin allocation is FF0X::B (group-id 0x000B). Operators MAY
+// override the group-id for testing or private deployments via configuration,
+// but the on-wire default is 0x000B for IANA conformance.
+//
+// Control-plane reserved indices occupy the top of the 16-bit shard space
+// (see [CtrlGroupSubtreeAnnounce], [CtrlGroupBeacon], [CtrlGroupControl]),
+// so practical shardBits values are bounded at 15.
 package shard
 
 import (
@@ -31,28 +39,34 @@ import (
 	"net"
 )
 
+// DefaultGroupID is the IANA-assigned IPv6 multicast group-id for Bitcoin
+// (FF0X::B). Operators MAY override via configuration but the on-wire default
+// must be DefaultGroupID for IANA conformance.
+const DefaultGroupID uint16 = 0x000B
+
 // Engine holds the immutable sharding parameters. Construct one with [New]
 // and share it freely across goroutines.
 type Engine struct {
-	mcPrefix    uint16   // upper 16 bits of the IPv6 multicast address, e.g. 0xFF05
-	middleBytes [11]byte // bytes 2-12 of the IPv6 address (assigned address space)
-	shardBits   uint     // number of txid prefix bits used as the group key
-	mask        uint32   // (1 << shardBits) - 1; applied after the shift
+	mcPrefix  uint16 // upper 16 bits of the IPv6 multicast address, e.g. 0xFF05
+	groupID   uint16 // bytes 12-13: IANA group-id (default 0x000B)
+	shardBits uint   // number of txid prefix bits used as the group key
+	mask      uint32 // (1 << shardBits) - 1; applied after the shift
 }
 
 // New creates a shard Engine.
 //
 //   - mcPrefix is the two-byte IPv6 multicast prefix (e.g. 0xFF05 for
 //     site-local scope).
-//   - middleBytes are bytes 2-12 of the IPv6 address for assigned address space.
+//   - groupID is the 16-bit IANA group-id occupying bytes 12-13 of the
+//     address (default [DefaultGroupID] = 0x000B for Bitcoin).
 //   - shardBits is the number of bits from the txid prefix that form the
-//     group key. Must be in [1, 24].
-func New(mcPrefix uint16, middleBytes [11]byte, shardBits uint) *Engine {
+//     group key. Must be in [1, 15].
+func New(mcPrefix uint16, groupID uint16, shardBits uint) *Engine {
 	return &Engine{
-		mcPrefix:    mcPrefix,
-		middleBytes: middleBytes,
-		shardBits:   shardBits,
-		mask:        (1 << shardBits) - 1,
+		mcPrefix:  mcPrefix,
+		groupID:   groupID,
+		shardBits: shardBits,
+		mask:      (1 << shardBits) - 1,
 	}
 }
 
@@ -73,18 +87,22 @@ func (e *Engine) GroupIndex(txid *[32]byte) uint32 {
 //
 // The returned address is a newly allocated value on each call; callers may
 // cache the result if the group index and port are stable.
+//
+// groupIndex is treated as a 16-bit value; only the low 16 bits are used.
 func (e *Engine) Addr(groupIndex uint32, port int) *net.UDPAddr {
 	ip := make(net.IP, 16)
 	binary.BigEndian.PutUint16(ip[0:2], e.mcPrefix)
-	copy(ip[2:13], e.middleBytes[:])
-	ip[13] = byte(groupIndex >> 16)
-	ip[14] = byte(groupIndex >> 8)
-	ip[15] = byte(groupIndex)
+	// bytes 2..11 remain zero (IANA 96-bit boundary)
+	binary.BigEndian.PutUint16(ip[12:14], e.groupID)
+	binary.BigEndian.PutUint16(ip[14:16], uint16(groupIndex))
 	return &net.UDPAddr{IP: ip, Port: port}
 }
 
 // ShardBits returns the configured bit width for informational and logging use.
 func (e *Engine) ShardBits() uint { return e.shardBits }
+
+// GroupID returns the configured IANA group-id (bytes 12-13 of the address).
+func (e *Engine) GroupID() uint16 { return e.groupID }
 
 // NumGroups returns the total number of distinct multicast groups in the
 // configured shard space (2^ShardBits).

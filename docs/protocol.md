@@ -127,14 +127,15 @@ groupIndex = (txid[0:4] as uint32 BE) >> (32 - shardBits)
 ```
 
 where `shardBits` is the configured `-shard-bits` value (default 2, range
-1–24). The group index maps to an IPv6 multicast address:
+1–15). The group index maps to an IPv6 multicast address:
 
 ```
 [FFsc::groupIndex]
 ```
 
 where `sc` is the two-nibble scope code (e.g. `FF05` for site-local). The
-group index occupies the three lowest bytes of the address.
+IANA group-id occupies bytes 12–13 (default `0x000B` = IANA Bitcoin
+allocation `FF0X::B`); the 16-bit shard index occupies bytes 14–15.
 
 **Consistent-hashing property:** increasing `shardBits` by 1 splits every
 existing group into exactly two child groups. Subscribers need only join
@@ -205,4 +206,7 @@ a `reason` label (`decode_error`, `write_error`, or `truncated`).
 | `HeaderSize`          | `92`           | BRC-124/BRC-128 header bytes                |
 | `MsgTypeSubtreeAnnounce` | `0x30` | BRC-127 SubtreeAnnounce datagram type |
 | `SubtreeAnnounceSize` | `64` | Fixed SubtreeAnnounce datagram size |
-| `CtrlGroupSubtreeAnnounce` | `0xFFFFFC` | Control-plane subtree announce group |
+| `CtrlGroupSubtreeAnnounce` | `0xFFFC` | Control-plane subtree announce group |
+| `CtrlGroupBeacon`          | `0xFFFD` | Control-plane ADVERT beacon group |
+| `CtrlGroupControl`         | `0xFFFE` | Reserved control channel |
+| `DefaultGroupID`           | `0x000B` | IANA Bitcoin multicast group-id (`FF0X::B`) |
