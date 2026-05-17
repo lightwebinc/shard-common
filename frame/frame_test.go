@@ -45,8 +45,8 @@ func TestRoundTrip(t *testing.T) {
 	payload := []byte("fake-bsv-tx-payload")
 	f := &Frame{
 		Payload: payload,
-		PrevSeq: 0x0102030405060708,
-		CurSeq:  0xAABBCCDDEEFF0011,
+		HashKey: 0x0102030405060708,
+		SeqNum:  0xAABBCCDDEEFF0011,
 	}
 	f.TxID[0] = 0xAB
 	for i := range f.SubtreeID {
@@ -69,11 +69,11 @@ func TestRoundTrip(t *testing.T) {
 	if got.TxID != f.TxID {
 		t.Errorf("TxID mismatch: got %x, want %x", got.TxID, f.TxID)
 	}
-	if got.PrevSeq != f.PrevSeq {
-		t.Errorf("PrevSeq = %d, want %d", got.PrevSeq, f.PrevSeq)
+	if got.HashKey != f.HashKey {
+		t.Errorf("HashKey = %d, want %d", got.HashKey, f.HashKey)
 	}
-	if got.CurSeq != f.CurSeq {
-		t.Errorf("CurSeq = %d, want %d", got.CurSeq, f.CurSeq)
+	if got.SeqNum != f.SeqNum {
+		t.Errorf("SeqNum = %d, want %d", got.SeqNum, f.SeqNum)
 	}
 	if got.SubtreeID != f.SubtreeID {
 		t.Errorf("SubtreeID mismatch")
@@ -83,12 +83,12 @@ func TestRoundTrip(t *testing.T) {
 	}
 }
 
-func TestRoundTripHashChain(t *testing.T) {
-	payload := []byte("tx-with-chain")
+func TestRoundTripSeqFields(t *testing.T) {
+	payload := []byte("tx-with-seq")
 	f := &Frame{
 		Payload: payload,
-		PrevSeq: 0xDEADBEEFCAFEBABE,
-		CurSeq:  0x0123456789ABCDEF,
+		HashKey: 0xDEADBEEFCAFEBABE,
+		SeqNum:  0x0123456789ABCDEF,
 	}
 	f.TxID[0] = 0xCC
 
@@ -100,11 +100,11 @@ func TestRoundTripHashChain(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Decode: %v", err)
 	}
-	if got.PrevSeq != f.PrevSeq {
-		t.Errorf("PrevSeq mismatch: got %x, want %x", got.PrevSeq, f.PrevSeq)
+	if got.HashKey != f.HashKey {
+		t.Errorf("HashKey mismatch: got %x, want %x", got.HashKey, f.HashKey)
 	}
-	if got.CurSeq != f.CurSeq {
-		t.Errorf("CurSeq mismatch: got %x, want %x", got.CurSeq, f.CurSeq)
+	if got.SeqNum != f.SeqNum {
+		t.Errorf("SeqNum mismatch: got %x, want %x", got.SeqNum, f.SeqNum)
 	}
 }
 
@@ -112,8 +112,8 @@ func TestRoundTripHashChain(t *testing.T) {
 
 func TestFieldOffsets(t *testing.T) {
 	f := &Frame{
-		PrevSeq: 0xAABBCCDDEEFF0011,
-		CurSeq:  0x1122334455667788,
+		HashKey: 0xAABBCCDDEEFF0011,
+		SeqNum:  0x1122334455667788,
 	}
 	f.TxID[0] = 0x11
 	for i := range f.SubtreeID {
@@ -136,10 +136,10 @@ func TestFieldOffsets(t *testing.T) {
 		t.Errorf("buf[8] (TxID[0]) = 0x%02X, want 0x11", buf[8])
 	}
 	if binary.BigEndian.Uint64(buf[40:48]) != 0xAABBCCDDEEFF0011 {
-		t.Errorf("buf[40:48] (PrevSeq) = %x, want 0xAABBCCDDEEFF0011", binary.BigEndian.Uint64(buf[40:48]))
+		t.Errorf("buf[40:48] (HashKey) = %x, want 0xAABBCCDDEEFF0011", binary.BigEndian.Uint64(buf[40:48]))
 	}
 	if binary.BigEndian.Uint64(buf[48:56]) != 0x1122334455667788 {
-		t.Errorf("buf[48:56] (CurSeq) = %x, want 0x1122334455667788", binary.BigEndian.Uint64(buf[48:56]))
+		t.Errorf("buf[48:56] (SeqNum) = %x, want 0x1122334455667788", binary.BigEndian.Uint64(buf[48:56]))
 	}
 	if buf[56] != 0xCC {
 		t.Errorf("buf[56] (SubtreeID[0]) = 0x%02X, want 0xCC", buf[56])
@@ -213,11 +213,11 @@ func TestDecodeV1ZeroedV2Fields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Decode v1: %v", err)
 	}
-	if f.PrevSeq != 0 {
-		t.Errorf("PrevSeq = %d, want 0", f.PrevSeq)
+	if f.HashKey != 0 {
+		t.Errorf("HashKey = %d, want 0", f.HashKey)
 	}
-	if f.CurSeq != 0 {
-		t.Errorf("CurSeq = %d, want 0", f.CurSeq)
+	if f.SeqNum != 0 {
+		t.Errorf("SeqNum = %d, want 0", f.SeqNum)
 	}
 	if f.SubtreeID != ([32]byte{}) {
 		t.Error("SubtreeID should be all zeros for BRC-12")

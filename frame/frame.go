@@ -26,17 +26,18 @@
 //	     6     1   —     Frame version  0x02 (BRC-124/BRC-128)
 //	     7     1   —     Reserved       0x00
 //	     8    32   8B    TxID           raw 256-bit txid (NOT display-reversed)
-//	    40     8   8B    PrevSeq        XXH64 of previous chain state; 0 = unset
-//	    48     8   8B    CurSeq         XXH64 of current chain state; 0 = unset
+//	    40     8   8B    HashKey        XXH64(senderIPv6 ∥ groupIdx ∥ subtreeID); stable per flow; 0 = unset
+//	    48     8   8B    SeqNum         Monotonic counter per flow; 0 = unset/unstamped
 //	    56    32   8B    SubtreeID      32-byte batch identifier; zeros = unset
 //	    88     4   8B    PayloadLen     uint32 BE
 //	    92     *   —     Payload        raw serialised BSV transaction
 //
-// PrevSeq and CurSeq form a hash chain: each frame's PrevSeq equals the
-// CurSeq of its predecessor in the sender's sequence. Both are computed by
-// the proxy (bitcoin-shard-proxy) as XXH64(senderIPv6 ∥ groupIdx ∥ counter)
-// and stamped in-place before multicast forwarding. Senders set both to 0.
-// Chain breaks (PrevSeq ≠ expected) indicate missing frames, triggering NACK.
+// HashKey is a stable per-flow identifier stamped by the proxy
+// (bitcoin-shard-proxy) as XXH64(senderIPv6 ∥ groupIdx ∥ subtreeID). It is
+// the same value for every frame in a (sender, group, subtree) flow.
+// SeqNum is a per-flow monotonic counter starting at 1. Senders set both to 0;
+// the proxy stamps them in-place before multicast forwarding. Gap detection
+// is performed by listeners as SeqNum ≠ lastSeqNum+1.
 //
 // # BRC-12 handling
 //
@@ -129,8 +130,8 @@ var (
 type Frame struct {
 	Version   byte     // FrameVerV1 or FrameVerV2 — set by Decode
 	TxID      [32]byte // Raw 256-bit transaction ID (internal byte order)
-	PrevSeq   uint64   // XXH64 of previous chain state; 0 = unset (always 0 for BRC-12)
-	CurSeq    uint64   // XXH64 of current chain state; 0 = unset (always 0 for BRC-12)
+	HashKey   uint64   // Stable per-flow identifier: XXH64(senderIPv6 ∥ groupIdx ∥ subtreeID); 0 = unset
+	SeqNum    uint64   // Monotonic per-flow counter starting at 1; 0 = unset/unstamped
 	SubtreeID [32]byte // 32-byte batch identifier; zeros = unset (always zero for BRC-12)
 	Payload   []byte   // Raw serialised BSV transaction
 }
@@ -150,8 +151,8 @@ func Encode(f *Frame, buf []byte) (int, error) {
 	buf[6] = FrameVerV2
 	buf[7] = 0
 	copy(buf[8:40], f.TxID[:])
-	binary.BigEndian.PutUint64(buf[40:48], f.PrevSeq)
-	binary.BigEndian.PutUint64(buf[48:56], f.CurSeq)
+	binary.BigEndian.PutUint64(buf[40:48], f.HashKey)
+	binary.BigEndian.PutUint64(buf[48:56], f.SeqNum)
 	copy(buf[56:88], f.SubtreeID[:])
 	binary.BigEndian.PutUint32(buf[88:92], uint32(len(f.Payload)))
 	copy(buf[92:], f.Payload)
@@ -219,8 +220,8 @@ func decodeV2(buf []byte) (*Frame, error) {
 	}
 	f := &Frame{Version: FrameVerV2}
 	copy(f.TxID[:], buf[8:40])
-	f.PrevSeq = binary.BigEndian.Uint64(buf[40:48])
-	f.CurSeq = binary.BigEndian.Uint64(buf[48:56])
+	f.HashKey = binary.BigEndian.Uint64(buf[40:48])
+	f.SeqNum = binary.BigEndian.Uint64(buf[48:56])
 	copy(f.SubtreeID[:], buf[56:88])
 	f.Payload = buf[HeaderSize : HeaderSize+payLen]
 	return f, nil

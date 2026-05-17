@@ -1,22 +1,20 @@
-// Package seqhash provides the hash function used to compute PrevSeq and
-// CurSeq values in BRC-124/BRC-128 frames.
+// Package seqhash provides the hash function used to compute HashKey values
+// in BRC-124/BRC-128 frames.
 //
-// Each frame's CurSeq is computed by the proxy as:
+// HashKey is a stable per-flow identifier computed by the proxy as:
 //
-//	XXH64(senderIPv6 ∥ groupIdx ∥ subtreeID ∥ counter)
+//	XXH64(senderIPv6 ∥ groupIdx ∥ subtreeID)
 //
 // where senderIPv6 is the 16-byte IPv6 address of the frame sender,
-// groupIdx is the 4-byte big-endian multicast group index, subtreeID is
-// the 32-byte BRC-124 subtree identifier (zero when unset), and counter
-// is a per-(sender, group, subtree) monotonic uint64 big-endian counter.
+// groupIdx is the 4-byte big-endian multicast group index, and subtreeID is
+// the 32-byte BRC-124 subtree identifier (zero when unset).
 //
-// The previous frame's CurSeq becomes the next frame's PrevSeq, forming a
-// verifiable hash chain. A chain break (PrevSeq ≠ expected) indicates one
-// or more missing frames, triggering NACK-based gap recovery.
+// HashKey is the same value for every frame in a (sender, group, subtree)
+// flow. Gap detection uses a separate monotonic SeqNum counter; HashKey
+// provides per-flow identity for cache lookup and NACK dispatch.
 //
 // Including subtreeID in the hash input keeps every subtree on its own
-// independent chain even within a single shard group, so packet loss in one
-// subtree cannot create false gaps in another (BRC-124 §1.2 ordering).
+// independent flow even within a single shard group (BRC-124 §1.2).
 package seqhash
 
 import (
@@ -26,24 +24,24 @@ import (
 )
 
 // inputSize is the fixed size of the hash input buffer:
-// 16B (IPv6) + 4B (groupIdx uint32 BE) + 32B (subtreeID) + 8B (counter uint64 BE).
-const inputSize = 60
+// 16B (IPv6) + 4B (groupIdx uint32 BE) + 32B (subtreeID).
+const inputSize = 52
 
-// Hash computes the XXH64 hash for one frame in a sequence chain.
+// Hash computes the stable per-flow XXH64 identifier (HashKey).
 //
 //   - senderIPv6: 16-byte IPv6 address of the originating sender (as returned
 //     by net.IP.To16()).
 //   - groupIdx: multicast group index for this frame's TxID shard.
 //   - subtreeID: 32-byte BRC-124 subtree identifier; all-zero when unset.
-//   - counter: per-(sender, group, subtree) monotonic counter, starting at 1.
 //
-// Returns 0 only when counter == 0 (counter == 0 means "unset" in the wire
-// format); callers must start counters at 1.
-func Hash(senderIPv6 [16]byte, groupIdx uint32, subtreeID [32]byte, counter uint64) uint64 {
+// The returned value is identical for every frame in the same
+// (sender, group, subtree) flow. A separate monotonic SeqNum counter
+// provides per-frame ordering; HashKey is never zero in practice (the
+// probability of XXH64 collision is negligible at any realistic flow count).
+func Hash(senderIPv6 [16]byte, groupIdx uint32, subtreeID [32]byte) uint64 {
 	var input [inputSize]byte
 	copy(input[0:16], senderIPv6[:])
 	binary.BigEndian.PutUint32(input[16:20], groupIdx)
 	copy(input[20:52], subtreeID[:])
-	binary.BigEndian.PutUint64(input[52:60], counter)
 	return xxhash.Sum64(input[:])
 }
