@@ -112,7 +112,9 @@ func TestDecodeV3_FieldOffsets(t *testing.T) {
 	txID[0] = 0x11
 	var subID [32]byte
 	subID[0] = 0x22
-	EncodeFragment(buf, txID, subID, 0xAABBCCDDEEFF0011, 0x1122334455667788, 5000, 7, 10, data)
+	if _, err := EncodeFragment(buf, txID, subID, 0xAABBCCDDEEFF0011, 0x1122334455667788, 5000, 7, 10, data); err != nil {
+		t.Fatalf("EncodeFragment: %v", err)
+	}
 
 	if buf[6] != FrameVerV3 {
 		t.Errorf("buf[6] (FrameVer) = 0x%02X, want 0x03", buf[6])
@@ -160,7 +162,9 @@ func TestDecodeV3_BackwardCompat(t *testing.T) {
 	subID[0] = 0xDD
 
 	v3buf := make([]byte, HeaderSizeV3+len(data))
-	EncodeFragment(v3buf, txID, subID, 0x1234567890ABCDEF, 77, 1000, 0, 1, data)
+	if _, err := EncodeFragment(v3buf, txID, subID, 0x1234567890ABCDEF, 77, 1000, 0, 1, data); err != nil {
+		t.Fatalf("EncodeFragment: %v", err)
+	}
 
 	v2buf := make([]byte, HeaderSize+len(data))
 	f := &Frame{
@@ -170,7 +174,9 @@ func TestDecodeV3_BackwardCompat(t *testing.T) {
 		SubtreeID: subID,
 		Payload:   data,
 	}
-	Encode(f, v2buf)
+	if _, err := Encode(f, v2buf); err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
 
 	// Bytes 0–87 must be identical (everything up to PayloadLen).
 	for i := 0; i < 88; i++ {
