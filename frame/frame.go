@@ -1,5 +1,6 @@
-// Package frame defines the BSV-over-UDP BRC-12 (legacy) and BRC-124/BRC-128 wire formats
-// used by the BSV transaction sharding pipeline.
+// Package frame defines the BSV-over-UDP BRC-12 (legacy), BRC-124/BRC-128,
+// and BRC-130 (fragmentation) wire formats used by the BSV transaction
+// sharding pipeline.
 //
 // # Wire format — BRC-12 (legacy, 44 bytes)
 //
@@ -29,8 +30,28 @@
 //	    40     8   8B    HashKey        XXH64(senderIPv6 ∥ groupIdx ∥ subtreeID); stable per flow; 0 = unset
 //	    48     8   8B    SeqNum         Monotonic counter per flow; 0 = unset/unstamped
 //	    56    32   8B    SubtreeID      32-byte batch identifier; zeros = unset
-//	    88     4   8B    PayloadLen     uint32 BE
+//	    88     4   8B    PayloadLen     uint32 BE (fragment data length)
 //	    92     *   —     Payload        raw serialised BSV transaction
+//
+// # Wire format — BRC-130 (104 bytes, fragmentation)
+//
+// Extends BRC-124 with a 12-byte fragment extension at bytes 92–103.
+// Bytes 0–91 are layout-compatible with BRC-124 (same field offsets).
+//
+//	Offset  Size  Field          Value / notes
+//	------  ----  -----          -------------
+//	     0    92  (BRC-124 hdr)  Identical layout; FrameVer = 0x03; PayloadLen = fragment data size
+//	    92     4  OrigPayloadLen Total unfragmented payload size (uint32 BE)
+//	    96     2  FragIndex      0-based fragment index (uint16 BE)
+//	    98     2  FragTotal      Total number of fragments (uint16 BE)
+//	   100     4  Reserved2      Must be 0x00000000
+//	   104     *  Fragment data
+//
+// Each fragment carries an independent HashKey and SeqNum stamped by the
+// proxy. Listeners reassemble fragments keyed by TxID and verify
+// SHA256d(reassembled payload) == TxID after completion.
+//
+// # HashKey and SeqNum
 //
 // HashKey is a stable per-flow identifier stamped by the proxy
 // (bitcoin-shard-proxy) as XXH64(senderIPv6 ∥ groupIdx ∥ subtreeID). It is
@@ -41,9 +62,10 @@
 //
 // # BRC-12 handling
 //
-// [Decode] accepts both BRC-12 and BRC-124/BRC-128 frames. BRC-12 frames are decoded into a [Frame]
-// with [Version] = [FrameVerV1] and zero-valued BRC-124-only fields.
-// The forwarder forwards BRC-12 frames verbatim (no re-encoding).
+// [Decode] accepts BRC-12, BRC-124/BRC-128, and BRC-130 frames.
+// BRC-12 frames are decoded into a [Frame] with [Version] = [FrameVerV1]
+// and zero-valued BRC-124-only fields.
+// BRC-130 fragment frames are decoded into a [FragFrame].
 // Unknown versions return [ErrBadVer].
 //
 // # BSV transaction format compatibility
@@ -78,12 +100,20 @@ const (
 	// FrameVerV2 is the current BRC-124/BRC-128 frame version.
 	FrameVerV2 byte = 0x02
 
+	// FrameVerV3 is the BRC-130 fragment frame version (104-byte header).
+	// Each BRC-130 datagram carries one fragment of a larger payload.
+	FrameVerV3 byte = 0x03
+
 	// HeaderSizeLegacy is the fixed size of the legacy BRC-12 frame header.
 	HeaderSizeLegacy = 44
 
 	// HeaderSize is the total size of the BRC-124/BRC-128 frame header in bytes.
 	// Payload begins at offset HeaderSize.
 	HeaderSize = 92
+
+	// HeaderSizeV3 is the total size of the BRC-130 fragment frame header in
+	// bytes. Fragment data begins at offset HeaderSizeV3.
+	HeaderSizeV3 = 104
 
 	// MsgTypeNACK identifies a gap-retransmission request (BRC-126).
 	MsgTypeNACK byte = 0x10
@@ -115,12 +145,17 @@ var (
 	// ErrBadMagic is returned when the first four bytes do not match MagicBSV.
 	ErrBadMagic = errors.New("frame: invalid BSV magic bytes")
 
-	// ErrBadVer is returned when the frame version byte is neither BRC-12 nor BRC-124/BRC-128.
+	// ErrBadVer is returned when the frame version byte is not a known version.
 	ErrBadVer = errors.New("frame: unsupported frame version")
 
 	// ErrTooShort is returned when the datagram is shorter than the minimum
-	// header size ([HeaderSizeLegacy] for BRC-12, [HeaderSize] for BRC-124/BRC-128).
+	// header size ([HeaderSizeLegacy] for BRC-12, [HeaderSize] for BRC-124/BRC-128,
+	// [HeaderSizeV3] for BRC-130).
 	ErrTooShort = errors.New("frame: datagram shorter than header")
+
+	// ErrBadFrag is returned when a BRC-130 fragment has an invalid
+	// FragIndex (≥ FragTotal) or FragTotal of zero.
+	ErrBadFrag = errors.New("frame: invalid fragment index or total")
 )
 
 // Frame is the parsed in-memory representation of a BRC-12 or BRC-124/BRC-128 BSV datagram.
@@ -189,6 +224,11 @@ func Decode(buf []byte) (*Frame, error) {
 		return decodeV1(buf)
 	case FrameVerV2:
 		return decodeV2(buf)
+	case FrameVerV3:
+		// BRC-130 fragment frames are decoded separately; Decode returns an
+		// error so callers that only handle Frame can distinguish fragments.
+		// Use [DecodeFragment] to obtain a [FragFrame].
+		return nil, fmt.Errorf("%w: FrameVer 0x03 is a BRC-130 fragment; use DecodeFragment", ErrBadVer)
 	default:
 		return nil, fmt.Errorf("%w: got 0x%02X", ErrBadVer, fver)
 	}
