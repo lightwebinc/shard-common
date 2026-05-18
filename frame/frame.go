@@ -1,6 +1,6 @@
 // Package frame defines the BSV-over-UDP BRC-12 (legacy), BRC-124/BRC-128,
-// and BRC-130 (fragmentation) wire formats used by the BSV transaction
-// sharding pipeline.
+// BRC-130 (fragmentation), BRC-131 (block control), and BRC-132 (subtree data)
+// wire formats used by the BSV transaction sharding pipeline.
 //
 // # Wire format — BRC-12 (legacy, 44 bytes)
 //
@@ -44,12 +44,33 @@
 //	    92     4  OrigPayloadLen Total unfragmented payload size (uint32 BE)
 //	    96     2  FragIndex      0-based fragment index (uint16 BE)
 //	    98     2  FragTotal      Total number of fragments (uint16 BE)
-//	   100     4  Reserved2      Must be 0x00000000
+//	   100     1  OrigFrameVer   Original FrameVer (0x00/0x02=V2, 0x04=V4 block, 0x05=V5 subtree)
+//	   101     3  Reserved2      Must be 0x000000
 //	   104     *  Fragment data
 //
 // Each fragment carries an independent HashKey and SeqNum stamped by the
 // proxy. Listeners reassemble fragments keyed by TxID and verify
-// SHA256d(reassembled payload) == TxID after completion.
+// SHA256d(reassembled payload) == TxID after completion (for V2 fragments).
+// For V5 subtree-data fragments, SHA256d is not applicable; optional
+// Merkle-root verification is used instead.
+//
+// # Wire format — BRC-132 (92 bytes, subtree data)
+//
+// BRC-132 uses the same 92-byte header layout as BRC-124 but with
+// FrameVer 0x05 and a MsgType byte at offset 7.
+//
+//	Offset  Size  Align  Field          Value / notes
+//	------  ----  -----  -----          -------------
+//	     0     4   —     Network magic  0xE3E1F3E8
+//	     4     2   —     Protocol ver   0x02BF
+//	     6     1   —     Frame version  0x05 (BRC-132 subtree data)
+//	     7     1   —     MsgType        0x01=HashesOnly, 0x02=FullNodes
+//	     8    32   8B    SubtreeID      SHA-256 Merkle root hash (content + reassembly key)
+//	    40     8   8B    HashKey        XXH64(senderIPv6 ∥ 0xFFFB ∥ subtreeID); stamped by proxy
+//	    48     8   8B    SeqNum         Monotonic per-flow counter; 0 = unset/unstamped
+//	    56    32   8B    LayoutPad32    All zeros (no secondary subtree ID; field kept for uniform HeaderSize)
+//	    88     4   8B    PayloadLen     uint32 BE
+//	    92     *   —     Payload        Subtree data (see SubtreeDataPayload)
 //
 // # HashKey and SeqNum
 //
@@ -109,6 +130,11 @@ const (
 	// group (FF0E::B:FFFE).
 	FrameVerV4 byte = 0x04
 
+	// FrameVerV5 is the BRC-132 subtree data frame version (92-byte header,
+	// layout-identical to BRC-124). Carried on the CtrlGroupSubtreeAnnounce
+	// multicast group (FF0X::B:FFFB).
+	FrameVerV5 byte = 0x05
+
 	// BlockMsgAnnounce identifies a BlockAnnounce payload in a FrameVerV4 frame.
 	// The payload carries the 80-byte block header, coinbase TxID, and subtree hashes.
 	BlockMsgAnnounce byte = 0x01
@@ -116,6 +142,14 @@ const (
 	// BlockMsgCoinbase identifies a CoinbaseTx payload in a FrameVerV4 frame.
 	// The payload carries the raw serialised coinbase transaction.
 	BlockMsgCoinbase byte = 0x02
+
+	// SubtreeMsgHashesOnly identifies a hashes-only subtree data payload in a
+	// FrameVerV5 frame. Each node is represented as a 32-byte TxHash.
+	SubtreeMsgHashesOnly byte = 0x01
+
+	// SubtreeMsgFullNodes identifies a full-node subtree data payload in a
+	// FrameVerV5 frame. Each node carries TxHash (32B) + Fee (8B) + Size (8B).
+	SubtreeMsgFullNodes byte = 0x02
 
 	// HeaderSizeLegacy is the fixed size of the legacy BRC-12 frame header.
 	HeaderSizeLegacy = 44
@@ -173,6 +207,10 @@ var (
 	// ErrBadBlockMsg is returned when a FrameVerV4 frame has an invalid
 	// BlockMsgType (not BlockMsgAnnounce or BlockMsgCoinbase).
 	ErrBadBlockMsg = errors.New("frame: invalid block message type")
+
+	// ErrBadSubtreeMsg is returned when a FrameVerV5 frame has an invalid
+	// MsgType (not SubtreeMsgHashesOnly or SubtreeMsgFullNodes).
+	ErrBadSubtreeMsg = errors.New("frame: invalid subtree data message type")
 )
 
 // Frame is the parsed in-memory representation of a BRC-12 or BRC-124/BRC-128 BSV datagram.
@@ -251,6 +289,11 @@ func Decode(buf []byte) (*Frame, error) {
 		// an error so callers that only handle Frame can distinguish them.
 		// Use [DecodeBlock] to obtain a [BlockFrame].
 		return nil, fmt.Errorf("%w: FrameVer 0x04 is a BRC-131 block control frame; use DecodeBlock", ErrBadVer)
+	case FrameVerV5:
+		// BRC-132 subtree data frames are decoded separately; Decode returns
+		// an error so callers that only handle Frame can distinguish them.
+		// Use [DecodeSubtreeData] to obtain a [SubtreeDataFrame].
+		return nil, fmt.Errorf("%w: FrameVer 0x05 is a BRC-132 subtree data frame; use DecodeSubtreeData", ErrBadVer)
 	default:
 		return nil, fmt.Errorf("%w: got 0x%02X", ErrBadVer, fver)
 	}

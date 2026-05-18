@@ -23,6 +23,7 @@ type FragFrame struct {
 	FragIndex      uint16   // 0-based index of this fragment
 	FragTotal      uint16   // Total number of fragments in this frame
 	OrigFrameVer   byte     // Original FrameVer before fragmentation (0 = default to FrameVerV2)
+	MsgType        byte     // Frame-type-specific MsgType from byte 7 (e.g. BlockMsgAnnounce, SubtreeMsgHashesOnly)
 	FragData       []byte   // Raw fragment bytes (zero-copy slice into decode buffer)
 }
 
@@ -67,6 +68,7 @@ func DecodeFragment(buf []byte) (*FragFrame, error) {
 		FragIndex:      fragIndex,
 		FragTotal:      fragTotal,
 		OrigFrameVer:   buf[100],
+		MsgType:        buf[7],
 		FragData:       buf[HeaderSizeV3 : HeaderSizeV3+fragDataLen],
 	}
 	copy(ff.TxID[:], buf[8:40])
