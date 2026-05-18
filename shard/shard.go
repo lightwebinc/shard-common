@@ -98,6 +98,9 @@ func (e *Engine) Addr(groupIndex uint32, port int) *net.UDPAddr {
 	return &net.UDPAddr{IP: ip, Port: port}
 }
 
+// Prefix returns the configured upper 16-bit scope prefix (e.g. 0xFF05, 0xFF0E).
+func (e *Engine) Prefix() uint16 { return e.mcPrefix }
+
 // ShardBits returns the configured bit width for informational and logging use.
 func (e *Engine) ShardBits() uint { return e.shardBits }
 

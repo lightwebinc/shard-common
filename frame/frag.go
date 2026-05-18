@@ -15,14 +15,15 @@ import (
 // [DecodeFragment]; the buffer must remain valid for the lifetime of the
 // FragFrame.
 type FragFrame struct {
-	TxID          [32]byte // Identical across all fragments of one frame
-	HashKey       uint64   // Stable per-flow identifier (same as parent flow); 0 = unstamped
-	SeqNum        uint64   // Per-fragment monotonic counter; 0 = unstamped
-	SubtreeID     [32]byte // Inherited from the original frame
-	OrigPayloadLen uint32  // Total unfragmented payload size in bytes
-	FragIndex     uint16   // 0-based index of this fragment
-	FragTotal     uint16   // Total number of fragments in this frame
-	FragData      []byte   // Raw fragment bytes (zero-copy slice into decode buffer)
+	TxID           [32]byte // Identical across all fragments of one frame
+	HashKey        uint64   // Stable per-flow identifier (same as parent flow); 0 = unstamped
+	SeqNum         uint64   // Per-fragment monotonic counter; 0 = unstamped
+	SubtreeID      [32]byte // Inherited from the original frame
+	OrigPayloadLen uint32   // Total unfragmented payload size in bytes
+	FragIndex      uint16   // 0-based index of this fragment
+	FragTotal      uint16   // Total number of fragments in this frame
+	OrigFrameVer   byte     // Original FrameVer before fragmentation (0 = default to FrameVerV2)
+	FragData       []byte   // Raw fragment bytes (zero-copy slice into decode buffer)
 }
 
 // DecodeFragment parses a raw BRC-130 fragment datagram into a FragFrame.
@@ -65,6 +66,7 @@ func DecodeFragment(buf []byte) (*FragFrame, error) {
 		OrigPayloadLen: binary.BigEndian.Uint32(buf[92:96]),
 		FragIndex:      fragIndex,
 		FragTotal:      fragTotal,
+		OrigFrameVer:   buf[100],
 		FragData:       buf[HeaderSizeV3 : HeaderSizeV3+fragDataLen],
 	}
 	copy(ff.TxID[:], buf[8:40])
@@ -87,6 +89,7 @@ func EncodeFragment(
 	origPayloadLen uint32,
 	fragIndex uint16,
 	fragTotal uint16,
+	origFrameVer byte,
 	fragData []byte,
 ) (int, error) {
 	total := HeaderSizeV3 + len(fragData)
@@ -106,7 +109,10 @@ func EncodeFragment(
 	binary.BigEndian.PutUint32(buf[92:96], origPayloadLen)
 	binary.BigEndian.PutUint16(buf[96:98], fragIndex)
 	binary.BigEndian.PutUint16(buf[98:100], fragTotal)
-	binary.BigEndian.PutUint32(buf[100:104], 0) // Reserved2
+	buf[100] = origFrameVer
+	buf[101] = 0
+	buf[102] = 0
+	buf[103] = 0
 	copy(buf[HeaderSizeV3:], fragData)
 
 	return total, nil

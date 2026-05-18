@@ -104,6 +104,19 @@ const (
 	// Each BRC-130 datagram carries one fragment of a larger payload.
 	FrameVerV3 byte = 0x03
 
+	// FrameVerV4 is the BRC-131 block control frame version (92-byte header,
+	// layout-identical to BRC-124). Carried on the CtrlGroupControl multicast
+	// group (FF0E::B:FFFE).
+	FrameVerV4 byte = 0x04
+
+	// BlockMsgAnnounce identifies a BlockAnnounce payload in a FrameVerV4 frame.
+	// The payload carries the 80-byte block header, coinbase TxID, and subtree hashes.
+	BlockMsgAnnounce byte = 0x01
+
+	// BlockMsgCoinbase identifies a CoinbaseTx payload in a FrameVerV4 frame.
+	// The payload carries the raw serialised coinbase transaction.
+	BlockMsgCoinbase byte = 0x02
+
 	// HeaderSizeLegacy is the fixed size of the legacy BRC-12 frame header.
 	HeaderSizeLegacy = 44
 
@@ -156,6 +169,10 @@ var (
 	// ErrBadFrag is returned when a BRC-130 fragment has an invalid
 	// FragIndex (≥ FragTotal) or FragTotal of zero.
 	ErrBadFrag = errors.New("frame: invalid fragment index or total")
+
+	// ErrBadBlockMsg is returned when a FrameVerV4 frame has an invalid
+	// BlockMsgType (not BlockMsgAnnounce or BlockMsgCoinbase).
+	ErrBadBlockMsg = errors.New("frame: invalid block message type")
 )
 
 // Frame is the parsed in-memory representation of a BRC-12 or BRC-124/BRC-128 BSV datagram.
@@ -229,6 +246,11 @@ func Decode(buf []byte) (*Frame, error) {
 		// error so callers that only handle Frame can distinguish fragments.
 		// Use [DecodeFragment] to obtain a [FragFrame].
 		return nil, fmt.Errorf("%w: FrameVer 0x03 is a BRC-130 fragment; use DecodeFragment", ErrBadVer)
+	case FrameVerV4:
+		// BRC-131 block control frames are decoded separately; Decode returns
+		// an error so callers that only handle Frame can distinguish them.
+		// Use [DecodeBlock] to obtain a [BlockFrame].
+		return nil, fmt.Errorf("%w: FrameVer 0x04 is a BRC-131 block control frame; use DecodeBlock", ErrBadVer)
 	default:
 		return nil, fmt.Errorf("%w: got 0x%02X", ErrBadVer, fver)
 	}

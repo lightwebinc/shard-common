@@ -50,7 +50,7 @@ func TestEncodeFragmentRoundTrip(t *testing.T) {
 	fragData := []byte("fragment-payload-bytes")
 
 	buf := make([]byte, HeaderSizeV3+len(fragData))
-	n, err := EncodeFragment(buf, txID, subtreeID, 0xDEADBEEF12345678, 42, 9999, 3, 8, fragData)
+	n, err := EncodeFragment(buf, txID, subtreeID, 0xDEADBEEF12345678, 42, 9999, 3, 8, 0, fragData)
 	if err != nil {
 		t.Fatalf("EncodeFragment: %v", err)
 	}
@@ -112,7 +112,7 @@ func TestDecodeV3_FieldOffsets(t *testing.T) {
 	txID[0] = 0x11
 	var subID [32]byte
 	subID[0] = 0x22
-	if _, err := EncodeFragment(buf, txID, subID, 0xAABBCCDDEEFF0011, 0x1122334455667788, 5000, 7, 10, data); err != nil {
+	if _, err := EncodeFragment(buf, txID, subID, 0xAABBCCDDEEFF0011, 0x1122334455667788, 5000, 7, 10, 0, data); err != nil {
 		t.Fatalf("EncodeFragment: %v", err)
 	}
 
@@ -143,8 +143,11 @@ func TestDecodeV3_FieldOffsets(t *testing.T) {
 	if binary.BigEndian.Uint16(buf[98:100]) != 10 {
 		t.Errorf("buf[98:100] (FragTotal) = %d, want 10", binary.BigEndian.Uint16(buf[98:100]))
 	}
-	if binary.BigEndian.Uint32(buf[100:104]) != 0 {
-		t.Errorf("buf[100:104] (Reserved2) = %d, want 0", binary.BigEndian.Uint32(buf[100:104]))
+	if buf[100] != 0 {
+		t.Errorf("buf[100] (OrigFrameVer) = 0x%02X, want 0x00", buf[100])
+	}
+	if buf[101] != 0 || buf[102] != 0 || buf[103] != 0 {
+		t.Errorf("buf[101:104] (Reserved2 padding) not zero")
 	}
 	if buf[HeaderSizeV3] != 0xFF {
 		t.Errorf("buf[%d] (FragData[0]) = 0x%02X, want 0xFF", HeaderSizeV3, buf[HeaderSizeV3])
@@ -162,7 +165,7 @@ func TestDecodeV3_BackwardCompat(t *testing.T) {
 	subID[0] = 0xDD
 
 	v3buf := make([]byte, HeaderSizeV3+len(data))
-	if _, err := EncodeFragment(v3buf, txID, subID, 0x1234567890ABCDEF, 77, 1000, 0, 1, data); err != nil {
+	if _, err := EncodeFragment(v3buf, txID, subID, 0x1234567890ABCDEF, 77, 1000, 0, 1, 0, data); err != nil {
 		t.Fatalf("EncodeFragment: %v", err)
 	}
 
@@ -294,7 +297,7 @@ func TestDecodeRejectsV3(t *testing.T) {
 func TestEncodeFragmentBufferTooSmall(t *testing.T) {
 	var txID [32]byte
 	var subID [32]byte
-	_, err := EncodeFragment(make([]byte, 10), txID, subID, 0, 0, 0, 0, 1, []byte("data"))
+	_, err := EncodeFragment(make([]byte, 10), txID, subID, 0, 0, 0, 0, 1, 0, []byte("data"))
 	if err == nil {
 		t.Fatal("want error for buffer too small, got nil")
 	}
