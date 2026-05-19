@@ -21,8 +21,8 @@ Offset  Size  Align  Field                 Value / notes
      6     1   —     Frame version         0x02 (BRC-124/BRC-128)
      7     1   —     Reserved              0x00
      8    32   8B    Transaction ID        raw 256-bit txid (internal byte order)
-    40     8   8B    PrevSeq               XXH64 of previous chain state; 0 = unset
-    48     8   8B    CurSeq                XXH64 of current chain state; 0 = unset
+    40     8   8B    HashKey               XXH64 per-flow identifier; 0 = unstamped
+    48     8   8B    SeqNum                monotonic per-flow counter; 0 = unstamped
     56    32   8B    Subtree ID            32-byte batch identifier; zeros = unset
     88     4   8B    Payload length        uint32; max 10 MiB
     92     *   —     BSV tx payload        raw serialised transaction bytes (BRC-12 or BRC-30 Extended Format for BRC-128)
@@ -32,8 +32,8 @@ Offset  Size  Align  Field                 Value / notes
 | Field | Offset | Offset % 8 |
 |-----------|--------|------------|
 | TXID | 8 | 0 ✓ |
-| PrevSeq | 40 | 0 ✓ |
-| CurSeq | 48 | 0 ✓ |
+| HashKey | 40 | 0 ✓ |
+| SeqNum | 48 | 0 ✓ |
 | SubtreeID | 56 | 0 ✓ |
 | PayLen | 88 | 0 ✓ |
 
@@ -56,17 +56,16 @@ order as used in the BSV P2P protocol — **not** the reversed display order
 shown by block explorers. The top bits of `txid[0:4]` are used by the shard
 engine to derive the multicast group index.
 
-**PrevSeq (40:48)** — `uint64` big-endian. XXH64 hash of the previous frame's
-chain state for this `(senderIPv6, groupIdx, subtreeID)` triple. Equals the
-`CurSeq` of the immediately preceding frame in the chain. Set either by the
-sender or stamped in-place by the proxy (see below). A value of `0` means
-first frame or unstamped.
+**HashKey (40:48)** — `uint64` big-endian. Stable per-flow identifier computed
+as `XXH64(senderIPv6 ∥ groupIdx ∥ subtreeID)`. Identifies the unique
+`(sender, group, subtree)` flow. Set either by the sender or stamped in-place
+by the proxy (see §6). A value of `0` means unstamped.
 
-**CurSeq (48:56)** — `uint64` big-endian. XXH64 hash of the current frame's chain
-state. Set either by the sender or stamped in-place by the proxy (see below).
-A value of `0` means unstamped. Receivers use this as the primary cache key for
-NACK-based retransmission. A mismatch between incoming `PrevSeq` and the
-listener's `lastCurSeq` (per `(groupIdx, subtreeID)` chain) indicates a gap.
+**SeqNum (48:56)** — `uint64` big-endian. Monotonic per-flow counter, starting
+at 1. Each new frame in a flow increments this value. Set either by the sender
+or stamped in-place by the proxy (see §6). A value of `0` means unstamped.
+Receivers track the last-seen SeqNum per HashKey; a jump of more than 1
+indicates a gap that triggers NACK-based retransmission.
 
 **Subtree ID (56:88)** — 32 bytes. An opaque batch identifier assigned by the
 transaction processor. All-zero bytes mean the field is unset. Passed through
@@ -152,13 +151,14 @@ The proxy processes each incoming datagram in two steps:
    bad magic, unsupported version, oversized payload, or truncated datagram.
    The TxID is extracted to derive the destination multicast group.
 
-2. **Forward** — for BRC-124 frames, if `CurSeq` (`raw[48:56]`) is **non-zero**
-   the sender has pre-stamped the frame and it is forwarded verbatim. If `CurSeq`
-   is zero the proxy stamps `PrevSeq` at `raw[40:48]` and `CurSeq` at `raw[48:56]`
-   in-place using XXH64 hash chain values per `(senderIPv6, groupIdx, subtreeID)`;
-   `SubtreeID` is read from `raw[56:88]` (zeros if unset). Write the raw bytes to
-   every configured egress interface via `IPV6_MULTICAST_IF`. BRC-12 frames are
-   always forwarded verbatim without modification.
+2. **Forward** — for BRC-124 frames, if `SeqNum` (`raw[48:56]`) is **non-zero**
+   the sender has pre-stamped the frame and it is forwarded verbatim. If `SeqNum`
+   is zero the proxy stamps `HashKey` at `raw[40:48]` and `SeqNum` at `raw[48:56]`
+   in-place: `HashKey = XXH64(senderIPv6 ∥ groupIdx ∥ subtreeID)` and `SeqNum`
+   is the next monotonic counter for that flow. `SubtreeID` is read from
+   `raw[56:88]` (zeros if unset). Write the raw bytes to every configured egress
+   interface via `IPV6_MULTICAST_IF`. BRC-12 frames are always forwarded verbatim
+   without modification.
 
 ---
 
@@ -175,7 +175,7 @@ frames concatenated end-to-end with no additional envelope.
    - **BRC-124/BRC-128:** read 48 more bytes to complete the 92-byte header;
      `PayLen` is at bytes 88–91.
 3. Read exactly `PayLen` bytes (the payload).
-4. Forward the reassembled raw bytes (PrevSeq/CurSeq stamped at 40–55 if CurSeq was zero, before processing).
+4. Forward the reassembled raw bytes (HashKey/SeqNum stamped at 40–55 if SeqNum was zero, before processing).
 
 The proxy closes the TCP connection on any protocol violation (bad magic,
 unsupported version byte, or read error).
@@ -203,12 +203,17 @@ a `reason` label (`decode_error`, `write_error`, or `truncated`).
 | `MagicBSV` | `0xE3E1F3E8` | BSV mainnet P2P magic |
 | `ProtoVer` | `0x02BF` | Protocol version 703 |
 | `FrameVerV1` | `0x01` | Legacy BRC-12; accepted, forwarded verbatim |
-| `FrameVerV2` | `0x02` | Current (BRC-124/BRC-128) |
+| `FrameVerV2` | `0x02` | BRC-124/BRC-128 transaction frames |
+| `FrameVerV3` | `0x03` | BRC-130 fragment frames (104-byte header) |
+| `FrameVerV4` | `0x04` | BRC-131 block control frames |
+| `FrameVerV5` | `0x05` | BRC-132 subtree data frames |
 | `HeaderSizeLegacy` | `44` | Legacy BRC-12 header bytes |
-| `HeaderSize`          | `92`           | BRC-124/BRC-128 header bytes                |
+| `HeaderSize` | `92` | BRC-124/128/131/132 header bytes |
+| `HeaderSizeV3` | `104` | BRC-130 fragment header bytes |
 | `MsgTypeSubtreeAnnounce` | `0x30` | BRC-127 SubtreeAnnounce datagram type |
 | `SubtreeAnnounceSize` | `64` | Fixed SubtreeAnnounce datagram size |
-| `CtrlGroupSubtreeAnnounce` | `0xFFFC` | Control-plane subtree announce group |
-| `CtrlGroupBeacon`          | `0xFFFD` | Control-plane ADVERT beacon group |
-| `CtrlGroupControl`         | `0xFFFE` | Reserved control channel |
-| `DefaultGroupID`           | `0x000B` | IANA Bitcoin multicast group-id (`FF0X::B`) |
+| `CtrlGroupSubtreeAnnounce` | `0xFFFB` | Control-plane subtree data group |
+| `CtrlGroupSubtreeGroupAnnounce` | `0xFFFC` | Control-plane subtree announce group |
+| `CtrlGroupBeacon` | `0xFFFD` | Control-plane ADVERT beacon group |
+| `CtrlGroupControl` | `0xFFFE` | Block control channel |
+| `DefaultGroupID` | `0x000B` | IANA Bitcoin multicast group-id (`FF0X::B`) |

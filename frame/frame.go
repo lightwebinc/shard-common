@@ -256,7 +256,7 @@ func Encode(f *Frame, buf []byte) (int, error) {
 // not modify or reuse buf while the Frame is in scope.
 //
 // BRC-12 frames (FrameVer 0x01) are decoded with [Version] = FrameVerV1 and
-// zero-valued PrevSeq, CurSeq, and SubtreeID. The forwarder forwards BRC-12
+// zero-valued HashKey, SeqNum, and SubtreeID. The forwarder forwards BRC-12
 // frames verbatim (no re-encoding).
 //
 // Unknown versions return [ErrBadVer].
