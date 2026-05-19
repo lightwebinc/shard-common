@@ -9,6 +9,11 @@ import (
 // Assignments). Network services occupy 0xF800–0xFFFF (2,048 indices);
 // current assignments are allocated from the top of that range.
 const (
+	// CtrlGroupBlockHeader is the reserved group index for the block header
+	// egress channel. Listeners emit stripped block headers (80-byte BSV
+	// headers in BRC-131 framing) to this group for SPV consumers.
+	CtrlGroupBlockHeader uint16 = 0xFFFA
+
 	// CtrlGroupSubtreeAnnounce is the reserved group index for the BRC-127
 	// subtree announcement control channel (Merkle subtree roll-ups).
 	CtrlGroupSubtreeAnnounce uint16 = 0xFFFB
