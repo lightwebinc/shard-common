@@ -1,6 +1,7 @@
 // Package frame defines the BSV-over-UDP BRC-12 (legacy), BRC-124/BRC-128,
-// BRC-130 (fragmentation), BRC-131 (block control), and BRC-132 (subtree data)
-// wire formats used by the BSV transaction sharding pipeline.
+// BRC-130 (fragmentation), BRC-131 (block control), BRC-132 (subtree data),
+// and BRC-134 (chained anchor transactions) wire formats used by the BSV
+// transaction sharding pipeline.
 //
 // # Wire format — BRC-12 (legacy, 44 bytes)
 //
@@ -135,6 +136,13 @@ const (
 	// multicast group (FF0X::B:FFFB).
 	FrameVerV5 byte = 0x05
 
+	// FrameVerV6 is the BRC-134 chained anchor transaction frame version
+	// (92-byte header, layout-identical to BRC-124). Anchor transactions are
+	// the root of a chain of dependent transactions and must reach every
+	// subscriber regardless of shard assignment. Carried on the
+	// CtrlGroupControl multicast group (FF0E::B:FFFE).
+	FrameVerV6 byte = 0x06
+
 	// BlockMsgAnnounce identifies a BlockAnnounce payload in a FrameVerV4 frame.
 	// The payload carries the 80-byte block header, coinbase TxID, and subtree hashes.
 	BlockMsgAnnounce byte = 0x01
@@ -218,7 +226,7 @@ var (
 // Payload is a zero-copy slice pointing into the buffer passed to [Decode];
 // the buffer must remain valid for the lifetime of the Frame.
 type Frame struct {
-	Version   byte     // FrameVerV1 or FrameVerV2 — set by Decode
+	Version   byte     // FrameVerV1, FrameVerV2, or FrameVerV6 — set by Decode / DecodeAnchor
 	TxID      [32]byte // Raw 256-bit transaction ID (internal byte order)
 	HashKey   uint64   // Stable per-flow identifier: XXH64(senderIPv6 ∥ groupIdx ∥ subtreeID); 0 = unset
 	SeqNum    uint64   // Monotonic per-flow counter starting at 1; 0 = unset/unstamped
@@ -294,6 +302,11 @@ func Decode(buf []byte) (*Frame, error) {
 		// an error so callers that only handle Frame can distinguish them.
 		// Use [DecodeSubtreeData] to obtain a [SubtreeDataFrame].
 		return nil, fmt.Errorf("%w: FrameVer 0x05 is a BRC-132 subtree data frame; use DecodeSubtreeData", ErrBadVer)
+	case FrameVerV6:
+		// BRC-134 anchor transaction frames are decoded separately; Decode
+		// returns an error so callers that only handle Frame can distinguish
+		// them. Use [DecodeAnchor] to obtain a [Frame] with Version=FrameVerV6.
+		return nil, fmt.Errorf("%w: FrameVer 0x06 is a BRC-134 anchor transaction frame; use DecodeAnchor", ErrBadVer)
 	default:
 		return nil, fmt.Errorf("%w: got 0x%02X", ErrBadVer, fver)
 	}
@@ -312,6 +325,58 @@ func decodeV1(buf []byte) (*Frame, error) {
 	copy(f.TxID[:], buf[8:40])
 	f.Payload = buf[HeaderSizeLegacy : HeaderSizeLegacy+payLen]
 	return f, nil
+}
+
+// DecodeAnchor parses a raw BRC-134 chained anchor transaction datagram into a
+// Frame. The header layout is identical to BRC-124 (same field offsets) but
+// the version byte is 0x06 and the frame is routed to CtrlGroupControl instead
+// of a shard group.
+//
+// The returned Frame.Payload is a zero-copy slice into buf. The caller must
+// not modify or reuse buf while the Frame is in scope.
+//
+// Possible errors: [ErrTooShort], [ErrBadMagic], [ErrBadVer], or
+// [io.ErrUnexpectedEOF] if the datagram is truncated relative to the declared
+// payload length.
+func DecodeAnchor(buf []byte) (*Frame, error) {
+	if len(buf) < HeaderSizeLegacy {
+		return nil, ErrTooShort
+	}
+	if magic := binary.BigEndian.Uint32(buf[0:4]); magic != MagicBSV {
+		return nil, fmt.Errorf("%w: got 0x%08X", ErrBadMagic, magic)
+	}
+	if buf[6] != FrameVerV6 {
+		return nil, fmt.Errorf("%w: got 0x%02X, want 0x06", ErrBadVer, buf[6])
+	}
+	if len(buf) < HeaderSize {
+		return nil, ErrTooShort
+	}
+	payLen := int(binary.BigEndian.Uint32(buf[88:HeaderSize]))
+	if len(buf)-HeaderSize < payLen {
+		return nil, io.ErrUnexpectedEOF
+	}
+	f := &Frame{Version: FrameVerV6}
+	copy(f.TxID[:], buf[8:40])
+	f.HashKey = binary.BigEndian.Uint64(buf[40:48])
+	f.SeqNum = binary.BigEndian.Uint64(buf[48:56])
+	// SubtreeID at 56–87 is always zeros for anchor frames; copy anyway for
+	// layout symmetry with decodeV2.
+	copy(f.SubtreeID[:], buf[56:88])
+	f.Payload = buf[HeaderSize : HeaderSize+payLen]
+	return f, nil
+}
+
+// IsAnchorFrame reports whether buf begins with a valid BRC-134 anchor
+// transaction header (magic + FrameVer == 0x06) without performing a full
+// decode. It returns false for any buffer shorter than [HeaderSizeLegacy].
+func IsAnchorFrame(buf []byte) bool {
+	if len(buf) < HeaderSizeLegacy {
+		return false
+	}
+	if binary.BigEndian.Uint32(buf[0:4]) != MagicBSV {
+		return false
+	}
+	return buf[6] == FrameVerV6
 }
 
 // decodeV2 parses the 92-byte BRC-124/BRC-128 header.
