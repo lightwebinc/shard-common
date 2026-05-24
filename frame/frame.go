@@ -1,7 +1,7 @@
 // Package frame defines the BSV-over-UDP BRC-12 (legacy), BRC-124/BRC-128,
 // BRC-130 (fragmentation), BRC-131 (block control), BRC-132 (subtree data),
-// and BRC-134 (chained anchor transactions) wire formats used by the BSV
-// transaction sharding pipeline.
+// BRC-134 (chained anchor transactions), and BRC-135 (block header) wire
+// formats used by the BSV transaction sharding pipeline.
 //
 // # Wire format — BRC-12 (legacy, 44 bytes)
 //
@@ -142,6 +142,14 @@ const (
 	// subscriber regardless of shard assignment. Carried on the
 	// CtrlGroupControl multicast group (FF0E::B:FFFE).
 	FrameVerV6 byte = 0x06
+
+	// FrameVerV7 is the BRC-135 block header frame version (92-byte header,
+	// layout-identical to BRC-124, with a fixed 80-byte payload carrying a
+	// raw BSV block header). Produced by emitters that strip the header from
+	// a BRC-131 BlockAnnounce and re-emit it to a downstream egress channel
+	// (typically CtrlGroupBlockHeader = 0xFFFA). BRC-135 frames are NOT
+	// retransmitted via BRC-126 on the primary fabric.
+	FrameVerV7 byte = 0x07
 
 	// BlockMsgAnnounce identifies a BlockAnnounce payload in a FrameVerV4 frame.
 	// The payload carries the 80-byte block header, coinbase TxID, and subtree hashes.
@@ -307,6 +315,11 @@ func Decode(buf []byte) (*Frame, error) {
 		// returns an error so callers that only handle Frame can distinguish
 		// them. Use [DecodeAnchor] to obtain a [Frame] with Version=FrameVerV6.
 		return nil, fmt.Errorf("%w: FrameVer 0x06 is a BRC-134 anchor transaction frame; use DecodeAnchor", ErrBadVer)
+	case FrameVerV7:
+		// BRC-135 block header frames are decoded separately; Decode returns
+		// an error so callers that only handle Frame can distinguish them.
+		// Use [DecodeBlockHeader] to obtain a [Frame] with Version=FrameVerV7.
+		return nil, fmt.Errorf("%w: FrameVer 0x07 is a BRC-135 block header frame; use DecodeBlockHeader", ErrBadVer)
 	default:
 		return nil, fmt.Errorf("%w: got 0x%02X", ErrBadVer, fver)
 	}

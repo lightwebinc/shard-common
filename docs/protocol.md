@@ -207,13 +207,18 @@ a `reason` label (`decode_error`, `write_error`, or `truncated`).
 | `FrameVerV3` | `0x03` | BRC-130 fragment frames (104-byte header) |
 | `FrameVerV4` | `0x04` | BRC-131 block control frames |
 | `FrameVerV5` | `0x05` | BRC-132 subtree data frames |
+| `FrameVerV6` | `0x06` | BRC-134 chained anchor transaction frames |
+| `FrameVerV7` | `0x07` | BRC-135 block header frames (emitter-originated) |
 | `HeaderSizeLegacy` | `44` | Legacy BRC-12 header bytes |
-| `HeaderSize` | `92` | BRC-124/128/131/132 header bytes |
+| `HeaderSize` | `92` | BRC-124/128/131/132/134/135 header bytes |
 | `HeaderSizeV3` | `104` | BRC-130 fragment header bytes |
+| `BlockHeaderSize` | `80` | BRC-135 fixed payload size (raw BSV block header) |
+| `BlockHeaderFrameSize` | `172` | BRC-135 total frame size (`HeaderSize + BlockHeaderSize`) |
 | `MsgTypeSubtreeAnnounce` | `0x30` | BRC-127 SubtreeAnnounce datagram type |
 | `SubtreeAnnounceSize` | `64` | Fixed SubtreeAnnounce datagram size |
+| `CtrlGroupBlockHeader` | `0xFFFA` | Block header egress channel (BRC-135) |
 | `CtrlGroupSubtreeAnnounce` | `0xFFFB` | Control-plane subtree data group |
 | `CtrlGroupSubtreeGroupAnnounce` | `0xFFFC` | Control-plane subtree announce group |
 | `CtrlGroupBeacon` | `0xFFFD` | Control-plane ADVERT beacon group |
-| `CtrlGroupControl` | `0xFFFE` | Block control channel |
+| `CtrlGroupControl` | `0xFFFE` | Block control + anchor channel (FF0E global scope) |
 | `DefaultGroupID` | `0x000B` | IANA Bitcoin multicast group-id (`FF0X::B`) |
