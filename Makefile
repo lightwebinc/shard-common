@@ -1,7 +1,10 @@
-.PHONY: test lint hooks
+.PHONY: test lint fmt hooks
 
 test:
 	go test -race ./...
+
+fmt:                   ## gofmt -w .
+	gofmt -w .
 
 lint:
 	golangci-lint run ./...
