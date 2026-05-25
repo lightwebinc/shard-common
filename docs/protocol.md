@@ -216,6 +216,8 @@ a `reason` label (`decode_error`, `write_error`, or `truncated`).
 | `BlockHeaderFrameSize` | `172` | BRC-135 total frame size (`HeaderSize + BlockHeaderSize`) |
 | `MsgTypeSubtreeAnnounce` | `0x30` | BRC-127 SubtreeAnnounce datagram type |
 | `SubtreeAnnounceSize` | `64` | Fixed SubtreeAnnounce datagram size |
+| `MsgTypeShardManifest` | `0x40` | BRC-137 ShardManifest datagram type |
+| `ShardManifestHeaderSize` | `64` | BRC-137 fixed header size; total = header + payload |
 | `CtrlGroupBlockHeader` | `0xFFFA` | Block header egress channel (BRC-135) |
 | `CtrlGroupSubtreeAnnounce` | `0xFFFB` | Control-plane subtree data group |
 | `CtrlGroupSubtreeGroupAnnounce` | `0xFFFC` | Control-plane subtree announce group |

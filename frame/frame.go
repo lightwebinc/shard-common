@@ -201,6 +201,17 @@ const (
 	// SubtreeAnnounceSize is the fixed wire size of a SubtreeAnnounce datagram
 	// in bytes.
 	SubtreeAnnounceSize = 64
+
+	// MsgTypeShardManifest identifies a BRC-137 shard manifest announcement
+	// datagram. Sent periodically by every multicast participant to the
+	// CtrlGroupBeacon multicast group to advertise its shard_bits configuration
+	// and the set of shard groups it has joined.
+	MsgTypeShardManifest byte = 0x40
+
+	// ShardManifestHeaderSize is the fixed size of the BRC-137 ShardManifest
+	// datagram header in bytes. The trailing payload (joined-groups list or
+	// bitmap) follows the header.
+	ShardManifestHeaderSize = 64
 )
 
 // Sentinel errors returned by [Decode].
