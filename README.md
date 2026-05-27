@@ -14,10 +14,11 @@ and `subtx-generator`.
 
 | Package    | Purpose                                                                 |
 | ---------- | ----------------------------------------------------------------------- |
-| `frame`    | Wire format codec: BRC-12/124/128 frames, BRC-127 announce, BRC-130 fragments, BRC-131 blocks, BRC-132 subtree data |
+| `frame`    | Wire format codec: BRC-12/124/128 frames, BRC-127 announce, BRC-130 fragments, BRC-131 blocks, BRC-132 subtree data, BRC-134 anchor txs, BRC-135 block headers, BRC-137 shard manifest |
 | `shard`    | TxID → IPv6 multicast group derivation (consistent-hash); control groups |
 | `seqhash`  | XXH64 per-flow HashKey computation                                      |
 | `sequence` | Per-shard monotonic counters (`sync/atomic`, zero-alloc)                |
+| `txidset`  | Two-tier TxID dedup (LRU + optional Redis SETNX); fail-open on Redis errors |
 
 ## Documentation
 
