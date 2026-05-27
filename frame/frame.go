@@ -76,7 +76,7 @@
 // # HashKey and SeqNum
 //
 // HashKey is a stable per-flow identifier stamped by the proxy
-// (bitcoin-shard-proxy) as XXH64(senderIPv6 ∥ groupIdx ∥ subtreeID). It is
+// (shard-proxy) as XXH64(senderIPv6 ∥ groupIdx ∥ subtreeID). It is
 // the same value for every frame in a (sender, group, subtree) flow.
 // SeqNum is a per-flow monotonic counter starting at 1. Senders set both to 0;
 // the proxy stamps them in-place before multicast forwarding. Gap detection
