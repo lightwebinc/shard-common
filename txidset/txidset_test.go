@@ -8,7 +8,7 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 
-	"github.com/lightwebinc/bitcoin-shard-common/txidset"
+	"github.com/lightwebinc/shard-common/txidset"
 )
 
 // fakeRecorder counts every Recorder callback for assertion.

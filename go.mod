@@ -1,4 +1,4 @@
-module github.com/lightwebinc/bitcoin-shard-common
+module github.com/lightwebinc/shard-common
 
 go 1.25.10
 

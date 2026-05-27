@@ -6,7 +6,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/lightwebinc/bitcoin-shard-common/frame"
+	"github.com/lightwebinc/shard-common/frame"
 )
 
 func makeBlockHeader80() []byte {
