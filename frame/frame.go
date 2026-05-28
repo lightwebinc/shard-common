@@ -127,12 +127,12 @@ const (
 	FrameVerV3 byte = 0x03
 
 	// FrameVerV4 is the BRC-131 block control frame version (92-byte header,
-	// layout-identical to BRC-124). Carried on the CtrlGroupControl multicast
+	// layout-identical to BRC-124). Carried on the GroupBlockBroadcast multicast
 	// group (FF0E::B:FFFE).
 	FrameVerV4 byte = 0x04
 
 	// FrameVerV5 is the BRC-132 subtree data frame version (92-byte header,
-	// layout-identical to BRC-124). Carried on the CtrlGroupSubtreeAnnounce
+	// layout-identical to BRC-124). Carried on the GroupSubtreeAnnounce
 	// multicast group (FF0X::B:FFFB).
 	FrameVerV5 byte = 0x05
 
@@ -140,14 +140,14 @@ const (
 	// (92-byte header, layout-identical to BRC-124). Anchor transactions are
 	// the root of a chain of dependent transactions and must reach every
 	// subscriber regardless of shard assignment. Carried on the
-	// CtrlGroupControl multicast group (FF0E::B:FFFE).
+	// GroupBlockBroadcast multicast group (FF0E::B:FFFE).
 	FrameVerV6 byte = 0x06
 
 	// FrameVerV7 is the BRC-135 block header frame version (92-byte header,
 	// layout-identical to BRC-124, with a fixed 80-byte payload carrying a
 	// raw BSV block header). Produced by emitters that strip the header from
 	// a BRC-131 BlockAnnounce and re-emit it to a downstream egress channel
-	// (typically CtrlGroupBlockHeader = 0xFFFA). BRC-135 frames are NOT
+	// (typically GroupBlockHeader = 0xFFFA). BRC-135 frames are NOT
 	// retransmitted via BRC-126 on the primary fabric.
 	FrameVerV7 byte = 0x07
 
@@ -194,7 +194,7 @@ const (
 	MsgTypeADVERT byte = 0x20
 
 	// MsgTypeSubtreeAnnounce identifies a BRC-127 subtree group announcement
-	// datagram. Sent periodically by block assemblers to the CtrlGroupSubtreeAnnounce
+	// datagram. Sent periodically by block assemblers to the GroupSubtreeAnnounce
 	// multicast group.
 	MsgTypeSubtreeAnnounce byte = 0x30
 
@@ -204,7 +204,7 @@ const (
 
 	// MsgTypeShardManifest identifies a BRC-137 shard manifest announcement
 	// datagram. Sent periodically by every multicast participant to the
-	// CtrlGroupBeacon multicast group to advertise its shard_bits configuration
+	// GroupBeacon multicast group to advertise its shard_bits configuration
 	// and the set of shard groups it has joined.
 	MsgTypeShardManifest byte = 0x40
 
@@ -353,7 +353,7 @@ func decodeV1(buf []byte) (*Frame, error) {
 
 // DecodeAnchor parses a raw BRC-134 chained anchor transaction datagram into a
 // Frame. The header layout is identical to BRC-124 (same field offsets) but
-// the version byte is 0x06 and the frame is routed to CtrlGroupControl instead
+// the version byte is 0x06 and the frame is routed to GroupBlockBroadcast instead
 // of a shard group.
 //
 // The returned Frame.Payload is a zero-copy slice into buf. The caller must

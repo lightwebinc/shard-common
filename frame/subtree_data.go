@@ -2,7 +2,7 @@
 //
 // A FrameVer 0x05 frame uses the same 92-byte header layout as BRC-124 but
 // carries subtree data payloads (transaction hashes or full nodes) on the
-// CtrlGroupSubtreeAnnounce multicast channel (FF0X::B:FFFB).
+// GroupSubtreeAnnounce multicast channel (FF0X::B:FFFB).
 
 package frame
 

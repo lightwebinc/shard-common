@@ -218,9 +218,9 @@ a `reason` label (`decode_error`, `write_error`, or `truncated`).
 | `SubtreeAnnounceSize` | `64` | Fixed SubtreeAnnounce datagram size |
 | `MsgTypeShardManifest` | `0x40` | BRC-137 ShardManifest datagram type |
 | `ShardManifestHeaderSize` | `64` | BRC-137 fixed header size; total = header + payload |
-| `CtrlGroupBlockHeader` | `0xFFFA` | Block header egress channel (BRC-135) |
-| `CtrlGroupSubtreeAnnounce` | `0xFFFB` | Control-plane subtree data group |
-| `CtrlGroupSubtreeGroupAnnounce` | `0xFFFC` | Control-plane subtree announce group |
-| `CtrlGroupBeacon` | `0xFFFD` | Control-plane ADVERT beacon group |
-| `CtrlGroupControl` | `0xFFFE` | Block control + anchor channel (FF0E global scope) |
+| `GroupBlockHeader` | `0xFFFA` | Block header egress channel (BRC-135) |
+| `GroupSubtreeAnnounce` | `0xFFFB` | Control-plane subtree data group |
+| `GroupSubtreeGroupAnnounce` | `0xFFFC` | Control-plane subtree announce group |
+| `GroupBeacon` | `0xFFFD` | Control-plane ADVERT beacon group |
+| `GroupBlockBroadcast` | `0xFFFE` | Block control + anchor channel (FF0E global scope) |
 | `DefaultGroupID` | `0x000B` | IANA Bitcoin multicast group-id (`FF0X::B`) |

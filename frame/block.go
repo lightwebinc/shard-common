@@ -2,7 +2,7 @@
 //
 // A FrameVer 0x04 frame uses the same 92-byte header layout as BRC-124 but
 // carries block control payloads (BlockAnnounce or CoinbaseTx) on the
-// CtrlGroupControl multicast channel (FF0E::B:FFFE).
+// GroupBlockBroadcast multicast channel (FF0E::B:FFFE).
 
 package frame
 

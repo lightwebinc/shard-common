@@ -2,71 +2,100 @@ package shard
 
 import (
 	"encoding/binary"
+	"fmt"
 	"net"
 )
 
-// Network service group index constants (BRC-129 Multicast Group Address
+// GroupIdx is a 16-bit IANA multicast group index occupying the last two
+// bytes of a BRC-129 multicast address (bytes 14..15). Network-service
+// groups are allocated from the top of the 0xF800–0xFFFF range; shard
+// groups occupy the low end.
+type GroupIdx uint16
+
+// Network-service group indices (BRC-129 Multicast Group Address
 // Assignments). Network services occupy 0xF800–0xFFFF (2,048 indices);
 // current assignments are allocated from the top of that range.
 const (
-	// CtrlGroupBlockHeader is the reserved group index for the block header
-	// egress channel. Listeners emit stripped block headers (80-byte BSV
-	// headers in BRC-131 framing) to this group for SPV consumers.
-	CtrlGroupBlockHeader uint16 = 0xFFFA
+	// GroupBlockHeader is the egress channel for stripped BSV block
+	// headers (BRC-135) sent to SPV consumers. Note: this is a
+	// data-egress channel, not control-plane.
+	GroupBlockHeader GroupIdx = 0xFFFA
 
-	// CtrlGroupSubtreeAnnounce is the reserved group index for the BRC-127
-	// subtree announcement control channel (Merkle subtree roll-ups).
-	CtrlGroupSubtreeAnnounce uint16 = 0xFFFB
+	// GroupSubtreeAnnounce carries BRC-127 subtree announcements
+	// (Merkle subtree roll-ups) and BRC-132 subtree data frames.
+	GroupSubtreeAnnounce GroupIdx = 0xFFFB
 
-	// CtrlGroupSubtreeGroupAnnounce is the reserved group index for the BRC-127
-	// subtree group announcement control channel.
-	CtrlGroupSubtreeGroupAnnounce uint16 = 0xFFFC
+	// GroupSubtreeGroupAnnounce carries BRC-127 subtree group
+	// announcements — SubtreeID↔GroupID bindings advertising logical
+	// groupings of subtrees for downstream filtering.
+	GroupSubtreeGroupAnnounce GroupIdx = 0xFFFC
 
-	// CtrlGroupBeacon is the reserved group index for the ADVERT beacon group.
-	// Used at both site (FF05) and global (FF0E) scope.
-	CtrlGroupBeacon uint16 = 0xFFFD
+	// GroupBeacon is the ADVERT beacon and BRC-137 shard-manifest
+	// group. Used at site (FF05), org (FF08), and global (FF0E) scopes.
+	GroupBeacon GroupIdx = 0xFFFD
 
-	// CtrlGroupControl is the reserved group index for the future control
-	// channel (block templates, producer-broadcast data).
-	CtrlGroupControl uint16 = 0xFFFE
+	// GroupBlockBroadcast is the global control channel for
+	// producer-broadcast block data: BRC-131 block announces, BRC-133
+	// coinbase frames, and BRC-134 anchor frames. Mandatory FF0E scope.
+	GroupBlockBroadcast GroupIdx = 0xFFFE
 )
 
-// Virtual HashKey ingredient indices.
-//
-// Several BRCs share the same multicast group (CtrlGroupControl, 0xFFFE) but
-// must form independent flows so each carries its own monotonic SeqNum
-// counter on the proxy. The proxy's flow key is (senderIPv6, groupIdx,
-// subtreeID); to keep these flows separate while still emitting to the
-// same multicast destination, the proxy substitutes a distinct virtual
-// groupIdx into the HashKey computation. These virtual indices never appear
-// in an actual IPv6 multicast address; they exist only as inputs to
-// XXH64-based HashKey derivation.
+// Virtual group indices. Several BRCs share the GroupBlockBroadcast wire
+// address but must form independent flows so each carries its own
+// monotonic SeqNum counter on the proxy. The proxy's flow key is
+// (senderIPv6, groupIdx, subtreeID); to keep these flows separate while
+// emitting to the same multicast destination, the proxy substitutes a
+// distinct virtual groupIdx into the HashKey computation. These virtual
+// indices never appear in an actual IPv6 multicast address; they exist
+// only as inputs to XXH64-based HashKey derivation.
 const (
-	// CoinbaseFlowVirtualIdx is used for BRC-133 coinbase transaction
-	// HashKey derivation. Coinbase frames egress to CtrlGroupControl but
-	// must not share a SeqNum counter with BRC-131 block announces.
-	CoinbaseFlowVirtualIdx uint32 = 0xFFF8
+	// GroupCoinbaseFlow is the virtual index for BRC-133 coinbase
+	// HashKey derivation. Coinbase frames egress to GroupBlockBroadcast
+	// but must not share a SeqNum counter with BRC-131 block announces.
+	GroupCoinbaseFlow GroupIdx = 0xFFF8
 
-	// AnchorFlowVirtualIdx is used for BRC-134 anchor transaction HashKey
-	// derivation. Anchor frames egress to CtrlGroupControl but must not
-	// share a SeqNum counter with BRC-131/BRC-133 frames.
-	AnchorFlowVirtualIdx uint32 = 0xFFF9
+	// GroupAnchorFlow is the virtual index for BRC-134 anchor HashKey
+	// derivation. Anchor frames egress to GroupBlockBroadcast but must
+	// not share a SeqNum counter with BRC-131 / BRC-133 frames.
+	GroupAnchorFlow GroupIdx = 0xFFF9
 )
 
-// ControlGroupAddr constructs a 16-byte IPv6 multicast address for a
-// control-plane group. This is a standalone helper (not bound to [Engine])
-// because control groups may use a different scope prefix than the data-plane
-// engine (e.g. both FF05 and FF0E for beacon groups).
+// String returns a stable snake_case label used in metrics and logs.
+func (g GroupIdx) String() string {
+	switch g {
+	case GroupBlockHeader:
+		return "block_header"
+	case GroupSubtreeAnnounce:
+		return "subtree_announce"
+	case GroupSubtreeGroupAnnounce:
+		return "subtree_group_announce"
+	case GroupBeacon:
+		return "beacon"
+	case GroupBlockBroadcast:
+		return "block_broadcast"
+	case GroupCoinbaseFlow:
+		return "coinbase_flow"
+	case GroupAnchorFlow:
+		return "anchor_flow"
+	default:
+		return fmt.Sprintf("0x%04x", uint16(g))
+	}
+}
+
+// GroupAddr constructs a 16-byte IPv6 multicast address for a network-service
+// group. This is a standalone helper (not bound to [Engine]) because these
+// groups may use a different scope prefix than the data-plane engine
+// (e.g. both FF05 and FF0E for beacon groups).
 //
 // scopePrefix is the two-byte IPv6 multicast prefix (e.g. 0xFF05 or 0xFF0E).
 // groupID is the 16-bit IANA group-id occupying bytes 12–13 of the address
 // (default [DefaultGroupID] = 0x000B for Bitcoin).
-// index is the control-plane group index (e.g. [CtrlGroupBeacon]).
-func ControlGroupAddr(scopePrefix uint16, groupID uint16, index uint16) net.IP {
+// idx is the group index (e.g. [GroupBeacon]).
+func GroupAddr(scopePrefix uint16, groupID uint16, idx GroupIdx) net.IP {
 	ip := make(net.IP, 16)
 	binary.BigEndian.PutUint16(ip[0:2], scopePrefix)
 	// bytes 2..11 remain zero (IANA 96-bit boundary)
 	binary.BigEndian.PutUint16(ip[12:14], groupID)
-	binary.BigEndian.PutUint16(ip[14:16], index)
+	binary.BigEndian.PutUint16(ip[14:16], uint16(idx))
 	return ip
 }

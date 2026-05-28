@@ -1,7 +1,7 @@
 // BRC-135 block header frame encode/decode.
 //
 // A FrameVer 0x07 frame carries a single raw 80-byte BSV block header on the
-// emitter's egress channel (typically CtrlGroupBlockHeader = 0xFFFA). It is
+// emitter's egress channel (typically GroupBlockHeader = 0xFFFA). It is
 // derived from a BRC-131 BlockAnnounce by extracting the first 80 bytes of
 // the announce payload and re-wrapping them in a 172-byte frame
 // (92-byte BRC-124-compatible header + 80-byte payload).
