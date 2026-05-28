@@ -31,6 +31,28 @@ const (
 	CtrlGroupControl uint16 = 0xFFFE
 )
 
+// Virtual HashKey ingredient indices.
+//
+// Several BRCs share the same multicast group (CtrlGroupControl, 0xFFFE) but
+// must form independent flows so each carries its own monotonic SeqNum
+// counter on the proxy. The proxy's flow key is (senderIPv6, groupIdx,
+// subtreeID); to keep these flows separate while still emitting to the
+// same multicast destination, the proxy substitutes a distinct virtual
+// groupIdx into the HashKey computation. These virtual indices never appear
+// in an actual IPv6 multicast address; they exist only as inputs to
+// XXH64-based HashKey derivation.
+const (
+	// CoinbaseFlowVirtualIdx is used for BRC-133 coinbase transaction
+	// HashKey derivation. Coinbase frames egress to CtrlGroupControl but
+	// must not share a SeqNum counter with BRC-131 block announces.
+	CoinbaseFlowVirtualIdx uint32 = 0xFFF8
+
+	// AnchorFlowVirtualIdx is used for BRC-134 anchor transaction HashKey
+	// derivation. Anchor frames egress to CtrlGroupControl but must not
+	// share a SeqNum counter with BRC-131/BRC-133 frames.
+	AnchorFlowVirtualIdx uint32 = 0xFFF9
+)
+
 // ControlGroupAddr constructs a 16-byte IPv6 multicast address for a
 // control-plane group. This is a standalone helper (not bound to [Engine])
 // because control groups may use a different scope prefix than the data-plane
