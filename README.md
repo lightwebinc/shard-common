@@ -7,8 +7,8 @@
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
 Shared protocol primitives for the BSV transaction sharding pipeline. Imported
-by `shard-proxy`, `shard-listener`, `retry-endpoint`,
-and `subtx-generator`.
+by `shard-proxy`, `shard-listener`, `retry-endpoint`, `subtx-generator`, and
+`shard-manifest`.
 
 ## Packages
 
