@@ -224,3 +224,69 @@ a `reason` label (`decode_error`, `write_error`, or `truncated`).
 | `GroupBeacon` | `0xFFFD` | Control-plane ADVERT beacon group |
 | `GroupBlockBroadcast` | `0xFFFE` | Block control + anchor channel (FF0E global scope) |
 | `DefaultGroupID` | `0x000B` | IANA Bitcoin multicast group-id (`FF0X::B`) |
+
+## 10. Source-Specific Multicast (RFC 4607)
+
+See the [SSM Support Plan](https://github.com/lightwebinc/bsv-multicast/blob/main/docs/SourceSpecificMulticast/ssm-support-plan.md)
+for the system-level design. shard-common provides three building
+blocks used by every multicast-aware repo:
+
+### 10.1 Addressing — `shard.Prefix(mode, scope)`
+
+| Mode | Site scope (intra-domain) | Global scope (inter-domain)                       |
+| ---- | ------------------------- | ------------------------------------------------- |
+| ASM  | `FF05::B:idx` (default)   | rejected — RFC 8815 deprecates inter-domain ASM   |
+| SSM  | `FF35::B:idx`             | `FF3E::B:idx`                                     |
+
+`SourceMode` (`asm`|`ssm`) and `Scope` (`site`|`global`) are exposed by
+the `shard` package with `String()` / `ParseSourceMode` / `ParseScope`
+helpers. The `(ASM, global)` combination returns an explicit RFC 8815
+error from `Prefix()`.
+
+### 10.2 Receiver-side joins — `netjoin.Join`
+
+```go
+err := netjoin.Join(fd, ifaceIdx, group, sources)
+//   sources == nil → IPV6_JOIN_GROUP        (ASM, *,G)
+//   sources != nil → MCAST_JOIN_SOURCE_GROUP (SSM, S,G per source)
+```
+
+The branch is selected by source-list presence so consumer code shares
+one call site for both ASM and SSM. `netjoin.Leave` mirrors the API,
+and `netjoin.Limiter` (token bucket) + `netjoin.Jitter` (startup
+randomisation) protect the kernel mfib and upstream MLDv2 querier
+against cold-start storms at the hundreds-of-publishers scale.
+
+### 10.3 Bootstrap source-list resolver — `bootstrap.Resolver`
+
+`bootstrap.Resolver` resolves a list of DNS names and/or IPv6 literals
+to a live set of IPv6 addresses for SSM `(S,G)` joins:
+
+- Startup is synchronous and fail-closed (errors if no entry resolves
+  to ≥1 AAAA record).
+- Refresh failures retain the last-good set so transient DNS outages
+  don't collapse joins; `ResolveErrors()` exposes the cumulative
+  failure count for monitoring.
+- `OnChange(added, removed)` callback fires after each diff so callers
+  can plumb the result straight into `netjoin.Join` / `netjoin.Leave`.
+
+### 10.4 BRC-137 ShardManifest SSM wire format
+
+`frame.ShardManifest` carries three SSM-related flag bits and an
+optional sources payload:
+
+| Bit | Constant                        | Meaning                                                                                                            |
+| --- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| 3   | `ShardManifestFlagSourceModeSSM` | Announcer declares the data plane uses SSM (FF3x prefix per `shard.Prefix(SSM, scope)`).                          |
+| 4   | `ShardManifestFlagSourcesValid` | Trailing payload includes `SourceCount × 16` bytes of publisher source IPv6 addresses (network byte order).        |
+| 5   | `ShardManifestFlagPilotOnly`    | Announcer is a non-production pilot; production consumers MAY ignore.                                              |
+
+`SourceCount` occupies bytes [42:44] (formerly reserved). The
+encoder/decoder enforce the BRC-137 coherence rules and return
+`ErrShardManifestBadSources` on violations:
+
+- `SourcesValid=1 && SourceCount=0` is rejected.
+- `SourcesValid=0 && SourceCount>0` is rejected.
+
+Consumers MUST union sources across currently-valid manifests they
+hold and feed the union into `(S,G)` join calls on data-plane groups.
