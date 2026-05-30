@@ -20,6 +20,23 @@ const (
 	// ShardManifestFlagShutdown marks the final announcement before a graceful
 	// shutdown; consumers MAY evict the corresponding registry entry immediately.
 	ShardManifestFlagShutdown byte = 1 << 2
+
+	// ShardManifestFlagSourceModeSSM declares the data plane uses
+	// Source-Specific Multicast (FF3x::/32 per RFC 4607). Auto-configuration
+	// consumers MUST use the SSM prefix when computing data-plane group
+	// addresses derived from this manifest.
+	ShardManifestFlagSourceModeSSM byte = 1 << 3
+
+	// ShardManifestFlagSourcesValid indicates the trailing payload includes
+	// SourceCount × 16 bytes of publisher source IPv6 addresses after the
+	// groups payload. Consumers union the source set across all
+	// currently-valid manifests they hold.
+	ShardManifestFlagSourcesValid byte = 1 << 4
+
+	// ShardManifestFlagPilotOnly marks the announcer as a non-production
+	// pilot instance; production consumers MAY ignore manifests with this
+	// flag set.
+	ShardManifestFlagPilotOnly byte = 1 << 5
 )
 
 // RoleHint values for ShardManifest.RoleHint.
@@ -63,6 +80,11 @@ var (
 
 	// ErrShardManifestBadCRC is returned when ManifestCRC verification fails.
 	ErrShardManifestBadCRC = errors.New("shard_manifest: CRC mismatch")
+
+	// ErrShardManifestBadSources is returned when SourcesValid / SourceCount
+	// coherence rules are violated (BRC-137 §Sources payload), e.g.
+	// SourcesValid=1 with SourceCount=0, or SourcesValid=0 with SourceCount>0.
+	ErrShardManifestBadSources = errors.New("shard_manifest: invalid sources encoding")
 )
 
 // ShardManifest is the in-memory representation of a BRC-137 ShardManifest
@@ -79,6 +101,12 @@ var (
 //
 // When [ShardManifestFlagGroupsValid] is clear, both Groups and Bitmap MUST
 // be empty (identity-only manifest).
+//
+// Sources, when non-empty, carries the publisher source IPv6 addresses
+// contributed by this announcer (BRC-137 §Sources payload). It is encoded
+// as the trailing K × 16 bytes of the datagram, appearing after the
+// groups payload. [ShardManifestFlagSourcesValid] MUST be set when
+// Sources is non-empty and MUST be clear when Sources is empty.
 type ShardManifest struct {
 	Flags            byte
 	SrcIPv6          [16]byte
@@ -91,18 +119,22 @@ type ShardManifest struct {
 	GenerationID     [16]byte
 	Groups           []uint16
 	Bitmap           []byte
+	Sources          [][16]byte
 }
 
-// ShardManifestSize returns the total wire size of m, including header and
-// trailing payload.
+// ShardManifestSize returns the total wire size of m, including header,
+// groups payload, and sources payload.
 func ShardManifestSize(m *ShardManifest) int {
-	if m.Flags&ShardManifestFlagGroupsValid == 0 {
-		return ShardManifestHeaderSize
+	size := ShardManifestHeaderSize
+	if m.Flags&ShardManifestFlagGroupsValid != 0 {
+		if len(m.Bitmap) > 0 {
+			size += len(m.Bitmap)
+		} else {
+			size += 2 * len(m.Groups)
+		}
 	}
-	if len(m.Bitmap) > 0 {
-		return ShardManifestHeaderSize + len(m.Bitmap)
-	}
-	return ShardManifestHeaderSize + 2*len(m.Groups)
+	size += 16 * len(m.Sources)
+	return size
 }
 
 // EncodeShardManifest serialises m into buf. It returns the number of bytes
@@ -142,6 +174,18 @@ func EncodeShardManifest(m *ShardManifest, buf []byte) (int, error) {
 		return 0, fmt.Errorf("%w: bitmap exceeds 65535 bytes", ErrShardManifestBadEncoding)
 	}
 
+	sourcesValid := m.Flags&ShardManifestFlagSourcesValid != 0
+	hasSources := len(m.Sources) > 0
+	if sourcesValid && !hasSources {
+		return 0, fmt.Errorf("%w: SourcesValid=1 but no sources", ErrShardManifestBadSources)
+	}
+	if !sourcesValid && hasSources {
+		return 0, fmt.Errorf("%w: sources present but SourcesValid=0", ErrShardManifestBadSources)
+	}
+	if hasSources && len(m.Sources) > 0xFFFF {
+		return 0, fmt.Errorf("%w: sources list exceeds 65535 entries", ErrShardManifestBadSources)
+	}
+
 	total := ShardManifestSize(m)
 	if len(buf) < total {
 		return 0, fmt.Errorf("shard_manifest: buffer too small (%d bytes, need %d)", len(buf), total)
@@ -168,8 +212,7 @@ func EncodeShardManifest(m *ShardManifest, buf []byte) (int, error) {
 	}
 	binary.BigEndian.PutUint16(buf[38:40], groupCount)
 	binary.BigEndian.PutUint16(buf[40:42], bitmapBytes)
-	buf[42] = 0
-	buf[43] = 0
+	binary.BigEndian.PutUint16(buf[42:44], uint16(len(m.Sources)))
 	// CRC field at [44:48] zeroed for now; computed below.
 	buf[44] = 0
 	buf[45] = 0
@@ -177,15 +220,20 @@ func EncodeShardManifest(m *ShardManifest, buf []byte) (int, error) {
 	buf[47] = 0
 	copy(buf[48:64], m.GenerationID[:])
 
+	off := ShardManifestHeaderSize
 	switch {
 	case hasBitmap:
-		copy(buf[ShardManifestHeaderSize:total], m.Bitmap)
+		copy(buf[off:off+len(m.Bitmap)], m.Bitmap)
+		off += len(m.Bitmap)
 	case hasList:
-		off := ShardManifestHeaderSize
 		for _, g := range m.Groups {
 			binary.BigEndian.PutUint16(buf[off:off+2], g)
 			off += 2
 		}
+	}
+	for _, src := range m.Sources {
+		copy(buf[off:off+16], src[:])
+		off += 16
 	}
 
 	crc := crc32.Checksum(buf[:total], crc32cTable)
@@ -230,7 +278,9 @@ func DecodeShardManifest(buf []byte) (*ShardManifest, error) {
 
 	groupCount := binary.BigEndian.Uint16(buf[38:40])
 	bitmapBytes := binary.BigEndian.Uint16(buf[40:42])
+	sourceCount := binary.BigEndian.Uint16(buf[42:44])
 	groupsValid := m.Flags&ShardManifestFlagGroupsValid != 0
+	sourcesValid := m.Flags&ShardManifestFlagSourcesValid != 0
 
 	switch {
 	case !groupsValid:
@@ -243,11 +293,19 @@ func DecodeShardManifest(buf []byte) (*ShardManifest, error) {
 		return nil, fmt.Errorf("%w: GroupsValid=1 but no payload", ErrShardManifestBadEncoding)
 	}
 
-	payloadLen := int(bitmapBytes)
-	if payloadLen == 0 {
-		payloadLen = 2 * int(groupCount)
+	switch {
+	case sourcesValid && sourceCount == 0:
+		return nil, fmt.Errorf("%w: SourcesValid=1 but SourceCount=0", ErrShardManifestBadSources)
+	case !sourcesValid && sourceCount > 0:
+		return nil, fmt.Errorf("%w: SourcesValid=0 but SourceCount>0", ErrShardManifestBadSources)
 	}
-	total := ShardManifestHeaderSize + payloadLen
+
+	groupsLen := int(bitmapBytes)
+	if groupsLen == 0 {
+		groupsLen = 2 * int(groupCount)
+	}
+	sourcesLen := 16 * int(sourceCount)
+	total := ShardManifestHeaderSize + groupsLen + sourcesLen
 	if len(buf) < total {
 		return nil, ErrShardManifestTruncated
 	}
@@ -264,12 +322,13 @@ func DecodeShardManifest(buf []byte) (*ShardManifest, error) {
 		return nil, fmt.Errorf("%w: got 0x%08X, want 0x%08X", ErrShardManifestBadCRC, got, wantCRC)
 	}
 
+	off := ShardManifestHeaderSize
 	switch {
 	case bitmapBytes > 0:
-		m.Bitmap = buf[ShardManifestHeaderSize:total]
+		m.Bitmap = buf[off : off+int(bitmapBytes)]
+		off += int(bitmapBytes)
 	case groupCount > 0:
 		groups := make([]uint16, groupCount)
-		off := ShardManifestHeaderSize
 		var prev uint16
 		for i := range groups {
 			g := binary.BigEndian.Uint16(buf[off : off+2])
@@ -281,6 +340,15 @@ func DecodeShardManifest(buf []byte) (*ShardManifest, error) {
 			off += 2
 		}
 		m.Groups = groups
+	}
+
+	if sourceCount > 0 {
+		sources := make([][16]byte, sourceCount)
+		for i := range sources {
+			copy(sources[i][:], buf[off:off+16])
+			off += 16
+		}
+		m.Sources = sources
 	}
 
 	return m, nil
