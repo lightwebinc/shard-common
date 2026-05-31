@@ -317,7 +317,8 @@ func EncodeShardManifest(m *ShardManifest, buf []byte) (int, error) {
 		buf[off+18] = 0 // Reserved
 		buf[off+19] = 0
 		binary.BigEndian.PutUint32(buf[off+20:off+24], m.Successor.TransitionEpoch)
-		off += SuccessorBlockSize
+		// off is no longer used after this point but reserved for future
+		// payload sections; leave the increment elided to satisfy ineffassign.
 	}
 
 	crc := crc32.Checksum(buf[:total], crc32cTable)
@@ -462,7 +463,9 @@ func DecodeShardManifest(buf []byte) (*ShardManifest, error) {
 				ErrShardManifestBadSuccessor, s.ShardBits, m.ShardBits)
 		}
 		m.Successor = s
-		off += SuccessorBlockSize
+		// off is no longer used after the successor block — kept for
+		// future payload-section extensions; do not increment to avoid
+		// ineffassign.
 	}
 
 	return m, nil

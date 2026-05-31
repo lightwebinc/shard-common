@@ -29,13 +29,13 @@ func TestIntegration_WireRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Skipf("ListenUDP: %v", err)
 	}
-	defer recv.Close()
+	defer func() { _ = recv.Close() }()
 
 	send, err := net.DialUDP("udp6", nil, recv.LocalAddr().(*net.UDPAddr))
 	if err != nil {
 		t.Skipf("DialUDP: %v", err)
 	}
-	defer send.Close()
+	defer func() { _ = send.Close() }()
 
 	// 2. Wire a Registry + Evaluator on the receive side. Run in a
 	// background goroutine that reads each datagram and Upserts into
@@ -160,12 +160,12 @@ func TestIntegration_SuccessorPipelineAdopts(t *testing.T) {
 	if err != nil {
 		t.Skipf("ListenUDP: %v", err)
 	}
-	defer recv.Close()
+	defer func() { _ = recv.Close() }()
 	send, err := net.DialUDP("udp6", nil, recv.LocalAddr().(*net.UDPAddr))
 	if err != nil {
 		t.Skipf("DialUDP: %v", err)
 	}
-	defer send.Close()
+	defer func() { _ = send.Close() }()
 
 	reg := manifest.NewRegistry(60 * time.Second)
 	ev := manifest.NewEvaluator(manifest.EvaluatorConfig{
