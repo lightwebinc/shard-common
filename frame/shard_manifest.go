@@ -37,7 +37,43 @@ const (
 	// pilot instance; production consumers MAY ignore manifests with this
 	// flag set.
 	ShardManifestFlagPilotOnly byte = 1 << 5
+
+	// ShardManifestFlagSuccessorValid indicates the trailing payload includes
+	// a 24-byte Successor block describing an in-flight generation transition
+	// (BRC-137 §Successor block). The block lives immediately after the
+	// sources payload. Requires Authoritative=1; consumers MUST reject
+	// manifests with SuccessorValid=1 && Authoritative=0 as malformed.
+	ShardManifestFlagSuccessorValid byte = 1 << 6
 )
+
+// SuccessorBlockSize is the fixed size of the BRC-137 Successor block.
+const SuccessorBlockSize = 24
+
+// SuccessorFlag bits for [SuccessorBlock.Flags].
+const (
+	// SuccessorFlagSourceModeSSM declares that the successor generation's
+	// data plane uses Source-Specific Multicast. Mirrors
+	// [ShardManifestFlagSourceModeSSM] but for the incoming generation.
+	SuccessorFlagSourceModeSSM byte = 1 << 0
+)
+
+// SuccessorBlock describes the incoming generation in a BRC-137
+// generation-transition signal. Encoded as 24 bytes immediately after the
+// sources payload when [ShardManifestFlagSuccessorValid] is set.
+type SuccessorBlock struct {
+	// GenerationID is the incoming generation's 128-bit identifier.
+	GenerationID [16]byte
+	// ShardBits is the incoming generation's shard-bit width. The pilot
+	// MUST keep |ShardBits - active ShardBits| ≤ 1.
+	ShardBits uint8
+	// Flags carry per-successor mode bits (currently only
+	// [SuccessorFlagSourceModeSSM]).
+	Flags uint8
+	// TransitionEpoch is the Unix-seconds time at which the successor
+	// becomes the sole active generation. Bridging consumers exit the
+	// bridging window when local_clock >= TransitionEpoch.
+	TransitionEpoch uint32
+}
 
 // RoleHint values for ShardManifest.RoleHint.
 const (
@@ -85,6 +121,13 @@ var (
 	// coherence rules are violated (BRC-137 §Sources payload), e.g.
 	// SourcesValid=1 with SourceCount=0, or SourcesValid=0 with SourceCount>0.
 	ErrShardManifestBadSources = errors.New("shard_manifest: invalid sources encoding")
+
+	// ErrShardManifestBadSuccessor is returned when the Successor block fails
+	// BRC-137 validation: SuccessorValid set without an accompanying
+	// SuccessorBlock, SuccessorBlock set without the flag, the announcer is
+	// not Authoritative, or the successor's ShardBits differs from the
+	// announcer's by more than ±1.
+	ErrShardManifestBadSuccessor = errors.New("shard_manifest: invalid successor block")
 )
 
 // ShardManifest is the in-memory representation of a BRC-137 ShardManifest
@@ -120,10 +163,16 @@ type ShardManifest struct {
 	Groups           []uint16
 	Bitmap           []byte
 	Sources          [][16]byte
+
+	// Successor describes an in-flight generation transition (BRC-137
+	// §Successor block). Non-nil iff [ShardManifestFlagSuccessorValid] is
+	// set in Flags. Decode rejects datagrams that violate the coherence or
+	// ±1 ShardBits-shift rules.
+	Successor *SuccessorBlock
 }
 
 // ShardManifestSize returns the total wire size of m, including header,
-// groups payload, and sources payload.
+// groups payload, sources payload, and successor block (if present).
 func ShardManifestSize(m *ShardManifest) int {
 	size := ShardManifestHeaderSize
 	if m.Flags&ShardManifestFlagGroupsValid != 0 {
@@ -134,6 +183,9 @@ func ShardManifestSize(m *ShardManifest) int {
 		}
 	}
 	size += 16 * len(m.Sources)
+	if m.Flags&ShardManifestFlagSuccessorValid != 0 {
+		size += SuccessorBlockSize
+	}
 	return size
 }
 
@@ -186,6 +238,28 @@ func EncodeShardManifest(m *ShardManifest, buf []byte) (int, error) {
 		return 0, fmt.Errorf("%w: sources list exceeds 65535 entries", ErrShardManifestBadSources)
 	}
 
+	successorValid := m.Flags&ShardManifestFlagSuccessorValid != 0
+	hasSuccessor := m.Successor != nil
+	if successorValid && !hasSuccessor {
+		return 0, fmt.Errorf("%w: SuccessorValid=1 but no Successor block", ErrShardManifestBadSuccessor)
+	}
+	if !successorValid && hasSuccessor {
+		return 0, fmt.Errorf("%w: Successor present but SuccessorValid=0", ErrShardManifestBadSuccessor)
+	}
+	if successorValid {
+		if m.Flags&ShardManifestFlagAuthoritative == 0 {
+			return 0, fmt.Errorf("%w: SuccessorValid=1 requires Authoritative=1", ErrShardManifestBadSuccessor)
+		}
+		if m.Successor.ShardBits > MaxShardBits {
+			return 0, fmt.Errorf("%w: successor ShardBits %d exceeds maximum %d",
+				ErrShardManifestBadSuccessor, m.Successor.ShardBits, MaxShardBits)
+		}
+		if !withinOneBit(m.ShardBits, m.Successor.ShardBits) {
+			return 0, fmt.Errorf("%w: |successor.ShardBits-active.ShardBits|>1 (%d vs %d)",
+				ErrShardManifestBadSuccessor, m.Successor.ShardBits, m.ShardBits)
+		}
+	}
+
 	total := ShardManifestSize(m)
 	if len(buf) < total {
 		return 0, fmt.Errorf("shard_manifest: buffer too small (%d bytes, need %d)", len(buf), total)
@@ -234,6 +308,16 @@ func EncodeShardManifest(m *ShardManifest, buf []byte) (int, error) {
 	for _, src := range m.Sources {
 		copy(buf[off:off+16], src[:])
 		off += 16
+	}
+
+	if successorValid {
+		copy(buf[off:off+16], m.Successor.GenerationID[:])
+		buf[off+16] = m.Successor.ShardBits
+		buf[off+17] = m.Successor.Flags
+		buf[off+18] = 0 // Reserved
+		buf[off+19] = 0
+		binary.BigEndian.PutUint32(buf[off+20:off+24], m.Successor.TransitionEpoch)
+		off += SuccessorBlockSize
 	}
 
 	crc := crc32.Checksum(buf[:total], crc32cTable)
@@ -300,12 +384,21 @@ func DecodeShardManifest(buf []byte) (*ShardManifest, error) {
 		return nil, fmt.Errorf("%w: SourcesValid=0 but SourceCount>0", ErrShardManifestBadSources)
 	}
 
+	successorValid := m.Flags&ShardManifestFlagSuccessorValid != 0
+	if successorValid && m.Flags&ShardManifestFlagAuthoritative == 0 {
+		return nil, fmt.Errorf("%w: SuccessorValid=1 requires Authoritative=1", ErrShardManifestBadSuccessor)
+	}
+
 	groupsLen := int(bitmapBytes)
 	if groupsLen == 0 {
 		groupsLen = 2 * int(groupCount)
 	}
 	sourcesLen := 16 * int(sourceCount)
-	total := ShardManifestHeaderSize + groupsLen + sourcesLen
+	successorLen := 0
+	if successorValid {
+		successorLen = SuccessorBlockSize
+	}
+	total := ShardManifestHeaderSize + groupsLen + sourcesLen + successorLen
 	if len(buf) < total {
 		return nil, ErrShardManifestTruncated
 	}
@@ -351,7 +444,38 @@ func DecodeShardManifest(buf []byte) (*ShardManifest, error) {
 		m.Sources = sources
 	}
 
+	if successorValid {
+		s := &SuccessorBlock{
+			ShardBits:       buf[off+16],
+			Flags:           buf[off+17],
+			TransitionEpoch: binary.BigEndian.Uint32(buf[off+20 : off+24]),
+		}
+		copy(s.GenerationID[:], buf[off:off+16])
+		// Reserved bytes [18:20] are ignored on receive per BRC-137 forward-
+		// compatibility; producers MUST set them to zero (enforced in encode).
+		if s.ShardBits > MaxShardBits {
+			return nil, fmt.Errorf("%w: successor ShardBits %d exceeds maximum %d",
+				ErrShardManifestBadSuccessor, s.ShardBits, MaxShardBits)
+		}
+		if !withinOneBit(m.ShardBits, s.ShardBits) {
+			return nil, fmt.Errorf("%w: |successor.ShardBits-active.ShardBits|>1 (%d vs %d)",
+				ErrShardManifestBadSuccessor, s.ShardBits, m.ShardBits)
+		}
+		m.Successor = s
+		off += SuccessorBlockSize
+	}
+
 	return m, nil
+}
+
+// withinOneBit reports whether |a-b| ≤ 1. Used to enforce the BRC-137
+// Successor-block constraint that the incoming generation's ShardBits
+// differs from the active one by at most ±1.
+func withinOneBit(a, b uint8) bool {
+	if a > b {
+		return a-b <= 1
+	}
+	return b-a <= 1
 }
 
 // IsShardManifest reports whether buf begins with a valid BRC-137 ShardManifest
