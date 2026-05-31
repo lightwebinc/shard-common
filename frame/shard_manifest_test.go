@@ -405,6 +405,196 @@ func recomputeCRC(buf []byte) {
 	binary.BigEndian.PutUint32(buf[44:48], crc)
 }
 
+func makeSuccessor() *SuccessorBlock {
+	s := &SuccessorBlock{
+		ShardBits:       5,
+		Flags:           SuccessorFlagSourceModeSSM,
+		TransitionEpoch: 1746900000,
+	}
+	for i := range s.GenerationID {
+		s.GenerationID[i] = byte(0xA0 + i)
+	}
+	return s
+}
+
+func TestShardManifest_RoundTrip_WithSuccessor(t *testing.T) {
+	m := makeShardManifest()
+	m.Flags |= ShardManifestFlagSuccessorValid
+	m.Successor = makeSuccessor()
+
+	buf := make([]byte, ShardManifestSize(m))
+	n, err := EncodeShardManifest(m, buf)
+	if err != nil {
+		t.Fatalf("EncodeShardManifest: %v", err)
+	}
+	want := ShardManifestHeaderSize + 2*len(m.Groups) + SuccessorBlockSize
+	if n != want {
+		t.Fatalf("encoded size = %d, want %d", n, want)
+	}
+
+	got, err := DecodeShardManifest(buf)
+	if err != nil {
+		t.Fatalf("DecodeShardManifest: %v", err)
+	}
+	if got.Successor == nil {
+		t.Fatalf("Successor is nil after round-trip")
+	}
+	if got.Successor.GenerationID != m.Successor.GenerationID {
+		t.Errorf("Successor.GenerationID mismatch")
+	}
+	if got.Successor.ShardBits != m.Successor.ShardBits {
+		t.Errorf("Successor.ShardBits = %d, want %d", got.Successor.ShardBits, m.Successor.ShardBits)
+	}
+	if got.Successor.Flags != m.Successor.Flags {
+		t.Errorf("Successor.Flags = 0x%02X, want 0x%02X", got.Successor.Flags, m.Successor.Flags)
+	}
+	if got.Successor.TransitionEpoch != m.Successor.TransitionEpoch {
+		t.Errorf("Successor.TransitionEpoch = %d, want %d",
+			got.Successor.TransitionEpoch, m.Successor.TransitionEpoch)
+	}
+}
+
+func TestShardManifest_RoundTrip_WithSuccessorAndSources(t *testing.T) {
+	// Successor block sits after sources; verify both decode correctly.
+	m := makeShardManifest()
+	m.Flags |= ShardManifestFlagSourcesValid | ShardManifestFlagSourceModeSSM | ShardManifestFlagSuccessorValid
+	m.Sources = [][16]byte{makeSrc(0x10), makeSrc(0x11)}
+	m.Successor = makeSuccessor()
+
+	buf := make([]byte, ShardManifestSize(m))
+	n, err := EncodeShardManifest(m, buf)
+	if err != nil {
+		t.Fatalf("EncodeShardManifest: %v", err)
+	}
+	want := ShardManifestHeaderSize + 2*len(m.Groups) + 16*len(m.Sources) + SuccessorBlockSize
+	if n != want {
+		t.Fatalf("encoded size = %d, want %d", n, want)
+	}
+
+	got, err := DecodeShardManifest(buf)
+	if err != nil {
+		t.Fatalf("DecodeShardManifest: %v", err)
+	}
+	if len(got.Sources) != len(m.Sources) {
+		t.Fatalf("Sources len = %d, want %d", len(got.Sources), len(m.Sources))
+	}
+	for i := range m.Sources {
+		if got.Sources[i] != m.Sources[i] {
+			t.Errorf("Sources[%d] = %x, want %x", i, got.Sources[i], m.Sources[i])
+		}
+	}
+	if got.Successor == nil || got.Successor.TransitionEpoch != m.Successor.TransitionEpoch {
+		t.Errorf("Successor mismatch: got=%+v want=%+v", got.Successor, m.Successor)
+	}
+}
+
+func TestShardManifest_BadSuccessor_FlagWithoutBlock(t *testing.T) {
+	m := makeShardManifest()
+	m.Flags |= ShardManifestFlagSuccessorValid
+	_, err := EncodeShardManifest(m, make([]byte, ShardManifestSize(m)+SuccessorBlockSize))
+	if !errors.Is(err, ErrShardManifestBadSuccessor) {
+		t.Errorf("want ErrShardManifestBadSuccessor, got %v", err)
+	}
+}
+
+func TestShardManifest_BadSuccessor_BlockWithoutFlag(t *testing.T) {
+	m := makeShardManifest()
+	m.Successor = makeSuccessor()
+	_, err := EncodeShardManifest(m, make([]byte, ShardManifestSize(m)+SuccessorBlockSize))
+	if !errors.Is(err, ErrShardManifestBadSuccessor) {
+		t.Errorf("want ErrShardManifestBadSuccessor, got %v", err)
+	}
+}
+
+func TestShardManifest_BadSuccessor_MissingAuthoritative(t *testing.T) {
+	m := makeShardManifest()
+	m.Flags &^= ShardManifestFlagAuthoritative
+	m.Flags |= ShardManifestFlagSuccessorValid
+	m.Successor = makeSuccessor()
+	_, err := EncodeShardManifest(m, make([]byte, ShardManifestSize(m)))
+	if !errors.Is(err, ErrShardManifestBadSuccessor) {
+		t.Errorf("want ErrShardManifestBadSuccessor, got %v", err)
+	}
+}
+
+func TestShardManifest_BadSuccessor_ShardBitsShiftTooLarge(t *testing.T) {
+	m := makeShardManifest() // active ShardBits=4
+	m.Flags |= ShardManifestFlagSuccessorValid
+	m.Successor = makeSuccessor()
+	m.Successor.ShardBits = 6 // |6-4|=2 > 1
+	_, err := EncodeShardManifest(m, make([]byte, ShardManifestSize(m)))
+	if !errors.Is(err, ErrShardManifestBadSuccessor) {
+		t.Errorf("want ErrShardManifestBadSuccessor, got %v", err)
+	}
+}
+
+func TestShardManifest_Successor_AcceptsPlusOne(t *testing.T) {
+	m := makeShardManifest()
+	m.Flags |= ShardManifestFlagSuccessorValid
+	m.Successor = makeSuccessor()
+	m.Successor.ShardBits = m.ShardBits + 1
+	if _, err := EncodeShardManifest(m, make([]byte, ShardManifestSize(m))); err != nil {
+		t.Errorf("+1 shift should be accepted: %v", err)
+	}
+}
+
+func TestShardManifest_Successor_AcceptsMinusOne(t *testing.T) {
+	m := makeShardManifest()
+	m.Flags |= ShardManifestFlagSuccessorValid
+	m.Successor = makeSuccessor()
+	m.Successor.ShardBits = m.ShardBits - 1
+	if _, err := EncodeShardManifest(m, make([]byte, ShardManifestSize(m))); err != nil {
+		t.Errorf("-1 shift should be accepted: %v", err)
+	}
+}
+
+func TestShardManifest_BadSuccessor_ShardBitsExceedsMax(t *testing.T) {
+	m := makeShardManifest()
+	m.ShardBits = MaxShardBits // active at max
+	m.Groups = []uint16{0, 1, 2, 3}
+	m.Flags |= ShardManifestFlagSuccessorValid
+	m.Successor = makeSuccessor()
+	m.Successor.ShardBits = MaxShardBits + 1 // successor exceeds max
+	_, err := EncodeShardManifest(m, make([]byte, ShardManifestSize(m)))
+	if !errors.Is(err, ErrShardManifestBadSuccessor) {
+		t.Errorf("want ErrShardManifestBadSuccessor, got %v", err)
+	}
+}
+
+func TestShardManifest_Decode_RejectsSuccessorWithoutAuthoritative(t *testing.T) {
+	m := makeShardManifest()
+	m.Flags |= ShardManifestFlagSuccessorValid
+	m.Successor = makeSuccessor()
+	buf := make([]byte, ShardManifestSize(m))
+	if _, err := EncodeShardManifest(m, buf); err != nil {
+		t.Fatalf("EncodeShardManifest: %v", err)
+	}
+	// Clear Authoritative bit on the wire, recompute CRC.
+	buf[7] &^= ShardManifestFlagAuthoritative
+	buf[44], buf[45], buf[46], buf[47] = 0, 0, 0, 0
+	recomputeCRC(buf)
+
+	_, err := DecodeShardManifest(buf)
+	if !errors.Is(err, ErrShardManifestBadSuccessor) {
+		t.Errorf("want ErrShardManifestBadSuccessor, got %v", err)
+	}
+}
+
+func TestShardManifest_Decode_TruncatedSuccessor(t *testing.T) {
+	m := makeShardManifest()
+	m.Flags |= ShardManifestFlagSuccessorValid
+	m.Successor = makeSuccessor()
+	buf := make([]byte, ShardManifestSize(m))
+	if _, err := EncodeShardManifest(m, buf); err != nil {
+		t.Fatalf("EncodeShardManifest: %v", err)
+	}
+	// Truncate the trailing successor block.
+	short := buf[:len(buf)-SuccessorBlockSize+1]
+	if _, err := DecodeShardManifest(short); !errors.Is(err, ErrShardManifestTruncated) {
+		t.Errorf("want ErrShardManifestTruncated, got %v", err)
+	}
+}
+
 func TestShardManifest_IsShardManifest(t *testing.T) {
 	m := makeShardManifest()
 	buf := make([]byte, ShardManifestSize(m))
