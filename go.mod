@@ -1,6 +1,6 @@
 module github.com/lightwebinc/shard-common
 
-go 1.25.10
+go 1.25.11
 
 require (
 	github.com/alicebob/miniredis/v2 v2.38.0
