@@ -18,7 +18,8 @@ by `shard-proxy`, `shard-listener`, `retry-endpoint`, `subtx-generator`, and
 | `shard`    | TxID → IPv6 multicast group derivation (consistent-hash); control groups |
 | `seqhash`  | XXH64 per-flow HashKey computation                                      |
 | `sequence` | Per-shard monotonic counters (`sync/atomic`, zero-alloc)                |
-| `txidset`  | Two-tier TxID dedup (LRU + optional Redis SETNX); fail-open on Redis errors |
+| `cache`    | Modular TTL'd KV backend with atomic `SetNX` (create-only). Implementations: `memory`, `redis` (Redis/Valkey/Dragonfly/Cluster), `aerospike` (Community Edition). Shared by `txidset` (tier-2) and the retry-endpoint frame store. See `bsv-multicast/docs/ModularCacheBackend/`. |
+| `txidset`  | Two-tier TxID dedup: tier-1 in-process LRU (zero-alloc hot path) + optional tier-2 `cache.Backend` SETNX; fail-open on backend errors |
 | `netjoin`  | IPv6 multicast `Join`/`Leave` — branches `IPV6_JOIN_GROUP` (ASM) and `MCAST_JOIN_SOURCE_GROUP` (SSM, RFC 3678) by source-list presence; token-bucket `Limiter` and `Jitter` helper for cold-start storm protection at scale. Powers the SSM join sites in every receiver. |
 | `bootstrap`| DNS-resolving source-set tracker for SSM `(S,G)` bootstrap lists: fail-closed startup, last-good retention on refresh failures, diff-callback for join/leave plumbing. |
 | `manifest` | BRC-137 auto-shard-config consumer: TTL-bounded `Registry` keyed on `(SrcIPv6, InstanceID)` and an `Evaluator` implementing the normative consumer profile (Authoritative quorum, hysteresis, ±1 ShardBits shift bound, manual-pin precedence, divergence telemetry, Successor-block adoption for live re-sharding). Powers proxy and listener auto-config when `-manifest-consumer-enabled` is set. |

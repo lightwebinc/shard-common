@@ -38,8 +38,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/redis/go-redis/v9"
+	"github.com/lightwebinc/shard-common/cache"
+	cacheredis "github.com/lightwebinc/shard-common/cache/redis"
 )
+
+// oneVal is the placeholder value written for every claim key; only key
+// presence matters for dedup. Shared (never mutated) to avoid per-claim allocs.
+var oneVal = []byte{'1'}
 
 // DefaultLocalCapacity is the default capacity of the tier-1 local set when
 // the caller does not specify one. Sized for ~10 minutes of peak TPS.
@@ -66,16 +71,26 @@ type Recorder interface {
 	MarkDropped(prefix string)
 }
 
-// Config holds the parameters used to construct a Store. RedisAddr empty
-// disables Redis and forces tier-1-only operation.
+// Config holds the parameters used to construct a Store.
+//
+// Tier 2 is supplied as a [cache.Backend]. Two ways to provide it:
+//
+//   - Backend set — the Store uses the injected backend (any kind: redis,
+//     aerospike, memory). The caller owns the backend's lifecycle and Close.
+//   - Backend nil + RedisAddr set — DEPRECATED convenience: the Store builds
+//     and owns a redis backend internally (preserves the historical
+//     constructor). Prefer building a backend with cache.Open and injecting it.
+//
+// Both empty → tier-1-only operation (local LRU; no cross-instance coordination).
 type Config struct {
-	RedisAddr      string
+	Backend        cache.Backend // Tier-2 backend; nil = none (unless RedisAddr set)
+	RedisAddr      string        // DEPRECATED: builds an internal redis backend when Backend is nil
 	TTL            time.Duration // Used for Claim and Mark when no per-op TTL is supplied
 	LocalCapacity  int           // Tier-1 set capacity; <=0 uses DefaultLocalCapacity
 	MarkQueueDepth int           // Buffered worker queue for async Mark; <=0 uses default 4096
 	MarkWorkers    int           // Goroutines draining the Mark queue; <=0 uses default 2
-	DialTimeout    time.Duration // Redis dial timeout; <=0 uses 200ms
-	OpTimeout      time.Duration // Redis read/write timeout per op; <=0 uses 50ms
+	DialTimeout    time.Duration // Backend dial timeout (RedisAddr path); <=0 uses 200ms
+	OpTimeout      time.Duration // Backend per-op timeout; <=0 uses 50ms
 	Recorder       Recorder      // Optional metric callbacks; may be nil
 }
 
@@ -84,21 +99,21 @@ type Config struct {
 // Construct with [New]. The zero value is unusable. Store is goroutine-safe
 // and intended to be shared between worker goroutines.
 type Store struct {
-	rec          Recorder
-	client       *redis.Client // nil = local-only mode
-	defaultTTL   time.Duration
-	opTimeout    time.Duration
-	local        *localSet
-	markCh       chan markJob
-	markWG       sync.WaitGroup
-	stopOnce     sync.Once
-	stopped      chan struct{}
-	closeRedisOK bool
+	rec        Recorder
+	backend    cache.Backend // nil = local-only mode
+	ownBackend bool          // true when the Store built the backend (RedisAddr path) and must Close it
+	defaultTTL time.Duration
+	opTimeout  time.Duration
+	local      *localSet
+	markCh     chan markJob
+	markWG     sync.WaitGroup
+	stopOnce   sync.Once
+	stopped    chan struct{}
 }
 
 type markJob struct {
 	prefix string
-	key    string
+	key    []byte
 	ttl    time.Duration
 }
 
@@ -139,20 +154,22 @@ func New(cfg Config) (*Store, error) {
 		stopped:    make(chan struct{}),
 	}
 
-	if cfg.RedisAddr != "" {
-		client := redis.NewClient(&redis.Options{
-			Addr:         cfg.RedisAddr,
-			DialTimeout:  cfg.DialTimeout,
-			ReadTimeout:  cfg.OpTimeout,
-			WriteTimeout: cfg.OpTimeout,
-			MaxRetries:   -1, // fail-open at the application layer
+	switch {
+	case cfg.Backend != nil:
+		// Injected backend; caller owns its lifecycle.
+		s.backend = cfg.Backend
+	case cfg.RedisAddr != "":
+		// Deprecated convenience: build and own a redis backend.
+		b, err := cacheredis.New(cacheredis.Options{
+			Addr:        cfg.RedisAddr,
+			DialTimeout: cfg.DialTimeout,
+			OpTimeout:   cfg.OpTimeout,
 		})
-		if err := pingWithRetry(client, 10*time.Second); err != nil {
-			_ = client.Close()
-			return nil, fmt.Errorf("txidset: redis ping %s: %w", cfg.RedisAddr, err)
+		if err != nil {
+			return nil, fmt.Errorf("txidset: %w", err)
 		}
-		s.client = client
-		s.closeRedisOK = true
+		s.backend = b
+		s.ownBackend = true
 	}
 
 	for i := 0; i < cfg.MarkWorkers; i++ {
@@ -183,7 +200,7 @@ func (s *Store) Claim(prefix string, txid [32]byte) (bool, error) {
 		}
 		return false, nil
 	}
-	if s.client == nil {
+	if s.backend == nil {
 		// Local-only: first sight from this Store's perspective.
 		if s.rec != nil {
 			s.rec.ClaimWon(prefix)
@@ -191,10 +208,10 @@ func (s *Store) Claim(prefix string, txid [32]byte) (bool, error) {
 		return true, nil
 	}
 
-	key := prefix + hex.EncodeToString(txid[:])
+	key := []byte(prefix + hex.EncodeToString(txid[:]))
 	ctx, cancel := context.WithTimeout(context.Background(), s.opTimeout)
 	defer cancel()
-	ok, err := s.client.SetNX(ctx, key, 1, s.defaultTTL).Result()
+	ok, err := s.backend.SetNX(ctx, key, oneVal, s.defaultTTL)
 	if err != nil {
 		if s.rec != nil {
 			s.rec.ClaimError(prefix)
@@ -227,14 +244,14 @@ func (s *Store) Mark(prefix string, txid [32]byte) {
 	// short-circuit deterministically.
 	s.local.SeenAndAdd(txid)
 
-	if s.client == nil {
+	if s.backend == nil {
 		if s.rec != nil {
 			s.rec.MarkDropped(prefix)
 		}
 		return
 	}
 
-	key := prefix + hex.EncodeToString(txid[:])
+	key := []byte(prefix + hex.EncodeToString(txid[:]))
 	job := markJob{prefix: prefix, key: key, ttl: s.defaultTTL}
 	select {
 	case s.markCh <- job:
@@ -245,38 +262,39 @@ func (s *Store) Mark(prefix string, txid [32]byte) {
 	}
 }
 
-// Close shuts down the async Mark workers and releases the Redis client.
-// Safe to call multiple times; only the first call has effect.
+// Close shuts down the async Mark workers and, if the Store built its own
+// backend (RedisAddr path), closes it. Injected backends are left to the
+// caller. Safe to call multiple times; only the first call has effect.
 func (s *Store) Close() error {
 	var err error
 	s.stopOnce.Do(func() {
 		close(s.stopped)
 		close(s.markCh)
 		s.markWG.Wait()
-		if s.closeRedisOK && s.client != nil {
-			err = s.client.Close()
+		if s.ownBackend && s.backend != nil {
+			err = s.backend.Close()
 		}
 	})
 	return err
 }
 
-// Healthy reports whether the Store has a working Redis connection. Returns
-// true in local-only mode (no Redis was ever required). Calls Ping with the
-// configured op-timeout. Intended for /readyz handlers, not the hot path.
+// Healthy reports whether the Store's tier-2 backend is reachable. Returns
+// true in local-only mode (no backend was ever required). Intended for
+// /readyz handlers, not the hot path.
 func (s *Store) Healthy() bool {
-	if s.client == nil {
+	if s.backend == nil {
 		return true
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), s.opTimeout)
 	defer cancel()
-	return s.client.Ping(ctx).Err() == nil
+	return s.backend.Healthy(ctx)
 }
 
 func (s *Store) markLoop() {
 	defer s.markWG.Done()
 	for job := range s.markCh {
 		ctx, cancel := context.WithTimeout(context.Background(), s.opTimeout)
-		ok, err := s.client.SetNX(ctx, job.key, 1, job.ttl).Result()
+		ok, err := s.backend.SetNX(ctx, job.key, oneVal, job.ttl)
 		cancel()
 		if s.rec == nil {
 			continue
@@ -290,19 +308,4 @@ func (s *Store) markLoop() {
 			s.rec.MarkExisted(job.prefix)
 		}
 	}
-}
-
-func pingWithRetry(c *redis.Client, total time.Duration) error {
-	deadline := time.Now().Add(total)
-	var lastErr error
-	for time.Now().Before(deadline) {
-		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-		lastErr = c.Ping(ctx).Err()
-		cancel()
-		if lastErr == nil {
-			return nil
-		}
-		time.Sleep(250 * time.Millisecond)
-	}
-	return lastErr
 }
