@@ -60,13 +60,13 @@ func conformance(t *testing.T, b cache.Backend) {
 
 func TestMemoryBackend(t *testing.T) {
 	b := memory.New(0)
-	defer b.Close()
+	defer func() { _ = b.Close() }()
 	conformance(t, b)
 }
 
 func TestMemoryExpiry(t *testing.T) {
 	b := memory.New(0)
-	defer b.Close()
+	defer func() { _ = b.Close() }()
 	ctx := context.Background()
 	if _, err := b.SetNX(ctx, []byte("e"), []byte("x"), 20*time.Millisecond); err != nil {
 		t.Fatal(err)
@@ -92,7 +92,7 @@ func TestRedisBackend(t *testing.T) {
 	if err != nil {
 		t.Fatalf("redis.New: %v", err)
 	}
-	defer b.Close()
+	defer func() { _ = b.Close() }()
 	conformance(t, b)
 }
 
@@ -110,7 +110,7 @@ func TestOpen(t *testing.T) {
 	if err != nil || b == nil {
 		t.Fatalf("Open(memory) = (%v, %v), want (backend, nil)", b, err)
 	}
-	defer b.Close()
+	defer func() { _ = b.Close() }()
 
 	// unknown → error.
 	if _, err := cache.Open(ctx, cache.Config{Backend: "bogus"}); err == nil {

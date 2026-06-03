@@ -15,12 +15,12 @@ func BenchmarkClaimLocalHit(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 
 	var txid [32]byte
 	binary.LittleEndian.PutUint64(txid[:8], 0xDEADBEEF)
 	// Prime the local set so every benchmark iteration is a hit.
-	s.Claim("bsp:tx:", txid)
+	_, _ = s.Claim("bsp:tx:", txid)
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -39,13 +39,13 @@ func BenchmarkClaimLocalMiss(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 
 	b.ReportAllocs()
 	b.ResetTimer()
 	var txid [32]byte
 	for i := 0; i < b.N; i++ {
 		binary.LittleEndian.PutUint64(txid[:8], uint64(i))
-		s.Claim("bsp:tx:", txid)
+		_, _ = s.Claim("bsp:tx:", txid)
 	}
 }
