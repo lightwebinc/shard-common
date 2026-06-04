@@ -46,7 +46,7 @@ func TestGroupAddr_blockBroadcast(t *testing.T) {
 }
 
 func TestGroupAddr_subtreeAnnounce(t *testing.T) {
-	ip := GroupAddr(0xFF05, DefaultGroupID, GroupSubtreeAnnounce)
+	ip := GroupAddr(0xFF05, DefaultGroupID, GroupSubtreeDataAnnounce)
 	want := net.ParseIP("FF05::B:FFFB")
 	if !ip.Equal(want) {
 		t.Errorf("got %v, want %v", ip, want)
@@ -67,9 +67,9 @@ func TestGroupAddrOrthogonal(t *testing.T) {
 	for bits := uint(1); bits <= 12; bits++ {
 		e := New(0xFF05, DefaultGroupID, bits)
 		numGroups := uint16(e.NumGroups())
-		if e.NumGroups() <= 0xFFFF && uint16(GroupSubtreeAnnounce) < numGroups {
-			t.Errorf("shardBits=%d: GroupSubtreeAnnounce (0x%X) < NumGroups (0x%X)",
-				bits, uint16(GroupSubtreeAnnounce), numGroups)
+		if e.NumGroups() <= 0xFFFF && uint16(GroupSubtreeDataAnnounce) < numGroups {
+			t.Errorf("shardBits=%d: GroupSubtreeDataAnnounce (0x%X) < NumGroups (0x%X)",
+				bits, uint16(GroupSubtreeDataAnnounce), numGroups)
 		}
 		if e.NumGroups() <= 0xFFFF && uint16(GroupBeacon) < numGroups {
 			t.Errorf("shardBits=%d: GroupBeacon (0x%X) < NumGroups (0x%X)",
@@ -105,7 +105,7 @@ func TestGroupIdxString(t *testing.T) {
 		want string
 	}{
 		{GroupBlockHeader, "block_header"},
-		{GroupSubtreeAnnounce, "subtree_announce"},
+		{GroupSubtreeDataAnnounce, "subtree_data_announce"},
 		{GroupSubtreeGroupAnnounce, "subtree_group_announce"},
 		{GroupBeacon, "beacon"},
 		{GroupBlockBroadcast, "block_broadcast"},

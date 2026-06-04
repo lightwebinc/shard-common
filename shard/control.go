@@ -21,16 +21,17 @@ const (
 	// data-egress channel, not control-plane.
 	GroupBlockHeader GroupIdx = 0xFFFA
 
-	// GroupSubtreeAnnounce carries BRC-127 subtree announcements
-	// (Merkle subtree roll-ups) and BRC-132 subtree data frames.
-	GroupSubtreeAnnounce GroupIdx = 0xFFFB
+	// GroupSubtreeDataAnnounce carries BRC-132 subtree data frames
+	// (Merkle subtree contents). Distinct from the BRC-127 subtree
+	// group-announce channel (GroupSubtreeGroupAnnounce, 0xFFFC).
+	GroupSubtreeDataAnnounce GroupIdx = 0xFFFB
 
 	// GroupSubtreeGroupAnnounce carries BRC-127 subtree group
 	// announcements — SubtreeID↔GroupID bindings advertising logical
 	// groupings of subtrees for downstream filtering.
 	GroupSubtreeGroupAnnounce GroupIdx = 0xFFFC
 
-	// GroupBeacon is the ADVERT beacon and BRC-137 shard-manifest
+	// GroupBeacon is the ADVERT beacon and BRC-139 shard-manifest
 	// group. Used at site (FF05), org (FF08), and global (FF0E) scopes.
 	GroupBeacon GroupIdx = 0xFFFD
 
@@ -65,8 +66,8 @@ func (g GroupIdx) String() string {
 	switch g {
 	case GroupBlockHeader:
 		return "block_header"
-	case GroupSubtreeAnnounce:
-		return "subtree_announce"
+	case GroupSubtreeDataAnnounce:
+		return "subtree_data_announce"
 	case GroupSubtreeGroupAnnounce:
 		return "subtree_group_announce"
 	case GroupBeacon:

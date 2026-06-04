@@ -214,12 +214,12 @@ a `reason` label (`decode_error`, `write_error`, or `truncated`).
 | `HeaderSizeV3` | `104` | BRC-130 fragment header bytes |
 | `BlockHeaderSize` | `80` | BRC-135 fixed payload size (raw BSV block header) |
 | `BlockHeaderFrameSize` | `172` | BRC-135 total frame size (`HeaderSize + BlockHeaderSize`) |
-| `MsgTypeSubtreeAnnounce` | `0x30` | BRC-127 SubtreeAnnounce datagram type |
-| `SubtreeAnnounceSize` | `64` | Fixed SubtreeAnnounce datagram size |
+| `MsgTypeSubtreeGroupAnnounce` | `0x30` | BRC-127 SubtreeGroupAnnounce datagram type |
+| `SubtreeGroupAnnounceSize` | `64` | Fixed SubtreeGroupAnnounce datagram size |
 | `MsgTypeShardManifest` | `0x40` | BRC-137 ShardManifest datagram type |
 | `ShardManifestHeaderSize` | `64` | BRC-137 fixed header size; total = header + payload |
 | `GroupBlockHeader` | `0xFFFA` | Block header egress channel (BRC-135) |
-| `GroupSubtreeAnnounce` | `0xFFFB` | Control-plane subtree data group |
+| `GroupSubtreeDataAnnounce` | `0xFFFB` | Control-plane subtree data group |
 | `GroupSubtreeGroupAnnounce` | `0xFFFC` | Control-plane subtree announce group |
 | `GroupBeacon` | `0xFFFD` | Control-plane ADVERT beacon group |
 | `GroupBlockBroadcast` | `0xFFFE` | Block control + anchor channel (FF0E global scope) |

@@ -132,7 +132,7 @@ const (
 	FrameVerV4 byte = 0x04
 
 	// FrameVerV5 is the BRC-132 subtree data frame version (92-byte header,
-	// layout-identical to BRC-124). Carried on the GroupSubtreeAnnounce
+	// layout-identical to BRC-124). Carried on the GroupSubtreeDataAnnounce
 	// multicast group (FF0X::B:FFFB).
 	FrameVerV5 byte = 0x05
 
@@ -193,14 +193,14 @@ const (
 	// endpoint (BRC-126).
 	MsgTypeADVERT byte = 0x20
 
-	// MsgTypeSubtreeAnnounce identifies a BRC-127 subtree group announcement
-	// datagram. Sent periodically by block assemblers to the GroupSubtreeAnnounce
-	// multicast group.
-	MsgTypeSubtreeAnnounce byte = 0x30
+	// MsgTypeSubtreeGroupAnnounce identifies a BRC-127 subtree group announcement
+	// datagram. Sent periodically by block assemblers to the
+	// GroupSubtreeGroupAnnounce multicast group (0xFFFC).
+	MsgTypeSubtreeGroupAnnounce byte = 0x30
 
-	// SubtreeAnnounceSize is the fixed wire size of a SubtreeAnnounce datagram
+	// SubtreeGroupAnnounceSize is the fixed wire size of a SubtreeGroupAnnounce datagram
 	// in bytes.
-	SubtreeAnnounceSize = 64
+	SubtreeGroupAnnounceSize = 64
 
 	// MsgTypeShardManifest identifies a BRC-137 shard manifest announcement
 	// datagram. Sent periodically by every multicast participant to the
