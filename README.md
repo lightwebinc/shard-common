@@ -6,6 +6,8 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/lightwebinc/shard-common)](https://goreportcard.com/report/github.com/lightwebinc/shard-common)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
+> Part of the [**BSV Layered Multicast**](https://github.com/lightwebinc/bsv-multicast) open-source project — see the main repository for the full architecture, design docs, and BRC specifications.
+
 Shared protocol primitives for the BSV transaction sharding pipeline. Imported
 by `shard-proxy`, `shard-listener`, `retry-endpoint`, `subtx-generator`, and
 `shard-manifest`.
