@@ -1,4 +1,4 @@
-// Package manifest implements the BRC-137 shard-manifest consumer profile:
+// Package manifest implements the BRC-139 shard-manifest consumer profile:
 // a TTL-bounded registry of received manifests, a quorum + hysteresis
 // evaluator that produces an adopted view of (ShardBits, SourceMode,
 // Successor) fields, and a deduplicated source-set view.
@@ -62,12 +62,12 @@ func (e *Entry) PilotOnly() bool {
 	return e.Flags&frame.ShardManifestFlagPilotOnly != 0
 }
 
-// Registry is a TTL-bounded set of currently-valid BRC-137 manifests
+// Registry is a TTL-bounded set of currently-valid BRC-139 manifests
 // keyed by (SrcIPv6, InstanceID). It is safe for concurrent use.
 type Registry struct {
 	// DefaultTTL is the fallback TTL applied when a manifest carries
 	// TTL=0. When zero (the default), 3 × AnnounceInterval is used per
-	// the BRC-137 §Cadence guidance.
+	// the BRC-139 §Cadence guidance.
 	DefaultTTL time.Duration
 
 	// Clock returns the current time. Tests override this; production
@@ -84,7 +84,7 @@ type entryKey struct {
 }
 
 // NewRegistry returns an empty Registry with the given default TTL.
-// Passing 0 selects the "3 × AnnounceInterval" fallback per BRC-137.
+// Passing 0 selects the "3 × AnnounceInterval" fallback per BRC-139.
 func NewRegistry(defaultTTL time.Duration) *Registry {
 	return &Registry{
 		DefaultTTL: defaultTTL,
@@ -105,7 +105,7 @@ func (r *Registry) now() time.Time {
 // rejecting datagrams with malformed payloads.
 //
 // When m carries the Shutdown flag the corresponding entry is evicted
-// immediately (BRC-137 §Flags).
+// immediately (BRC-139 §Flags).
 func (r *Registry) Upsert(src netip.Addr, m *frame.ShardManifest) *Entry {
 	k := entryKey{src: src.WithZone(""), instanceID: m.InstanceID}
 

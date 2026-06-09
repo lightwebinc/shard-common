@@ -156,7 +156,7 @@ func TestEvaluator_NonAuthoritativeIgnoredForAdoption(t *testing.T) {
 }
 
 func TestEvaluator_SourceSetUnionIncludesNonAuthoritative(t *testing.T) {
-	// Per BRC-137 §Source set: the source-set union is NOT gated by
+	// Per BRC-139 §Source set: the source-set union is NOT gated by
 	// Authoritative. Every currently-valid manifest contributes.
 	now := time.Unix(1746800000, 0)
 	ev := NewEvaluator(EvaluatorConfig{

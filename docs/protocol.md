@@ -216,8 +216,8 @@ a `reason` label (`decode_error`, `write_error`, or `truncated`).
 | `BlockHeaderFrameSize` | `172` | BRC-135 total frame size (`HeaderSize + BlockHeaderSize`) |
 | `MsgTypeSubtreeGroupAnnounce` | `0x30` | BRC-127 SubtreeGroupAnnounce datagram type |
 | `SubtreeGroupAnnounceSize` | `64` | Fixed SubtreeGroupAnnounce datagram size |
-| `MsgTypeShardManifest` | `0x40` | BRC-137 ShardManifest datagram type |
-| `ShardManifestHeaderSize` | `64` | BRC-137 fixed header size; total = header + payload |
+| `MsgTypeShardManifest` | `0x40` | BRC-139 ShardManifest datagram type |
+| `ShardManifestHeaderSize` | `64` | BRC-139 fixed header size; total = header + payload |
 | `GroupBlockHeader` | `0xFFFA` | Block header egress channel (BRC-135) |
 | `GroupSubtreeDataAnnounce` | `0xFFFB` | Control-plane subtree data group |
 | `GroupSubtreeGroupAnnounce` | `0xFFFC` | Control-plane subtree announce group |
@@ -227,7 +227,7 @@ a `reason` label (`decode_error`, `write_error`, or `truncated`).
 
 ## 10. Source-Specific Multicast (RFC 4607)
 
-See the [SSM Support Plan](https://github.com/lightwebinc/bsv-multicast/blob/main/docs/SourceSpecificMulticast/ssm-support-plan.md)
+See the [SSM Support Plan](https://github.com/lightwebinc/bsv-multicast/blob/main/DESIGN.md#source-specific-multicast-ssm)
 for the system-level design. shard-common provides three building
 blocks used by every multicast-aware repo:
 
@@ -270,7 +270,7 @@ to a live set of IPv6 addresses for SSM `(S,G)` joins:
 - `OnChange(added, removed)` callback fires after each diff so callers
   can plumb the result straight into `netjoin.Join` / `netjoin.Leave`.
 
-### 10.4 BRC-137 ShardManifest SSM wire format
+### 10.4 BRC-139 ShardManifest SSM wire format
 
 `frame.ShardManifest` carries three SSM-related flag bits and an
 optional sources payload:
@@ -282,7 +282,7 @@ optional sources payload:
 | 5   | `ShardManifestFlagPilotOnly`    | Announcer is a non-production pilot; production consumers MAY ignore.                                              |
 
 `SourceCount` occupies bytes [42:44] (formerly reserved). The
-encoder/decoder enforce the BRC-137 coherence rules and return
+encoder/decoder enforce the BRC-139 coherence rules and return
 `ErrShardManifestBadSources` on violations:
 
 - `SourcesValid=1 && SourceCount=0` is rejected.

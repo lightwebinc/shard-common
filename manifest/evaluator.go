@@ -27,7 +27,7 @@ type Adopted struct {
 
 	// SourceSet is the deduplicated union of Flags.SourcesValid
 	// payloads across ALL currently-valid manifests (not gated by
-	// authoritative quorum, per BRC-137 §Source set).
+	// authoritative quorum, per BRC-139 §Source set).
 	SourceSet []netip.Addr
 
 	// Successor, when non-nil, is the operator-announced incoming
@@ -50,7 +50,7 @@ type Adopted struct {
 	DivergenceFields []string
 }
 
-// SuccessorView is the consumer-side projection of a BRC-137 Successor
+// SuccessorView is the consumer-side projection of a BRC-139 Successor
 // block. The fields mirror [frame.SuccessorBlock] plus the per-consumer
 // observation timestamp used to compute bridging-window deadlines.
 type SuccessorView struct {
@@ -479,7 +479,7 @@ func boolToUint64(b bool) uint64 {
 // withinOneBit duplicates the helper from the frame package so the
 // manifest package has no upward dependency on internal frame helpers
 // and the adoption-side ±1 check can apply to the locally-adopted
-// ShardBits (which is what the BRC-137 normative rule requires for
+// ShardBits (which is what the BRC-139 normative rule requires for
 // auto-config consumers).
 func withinOneBit(a, b uint8) bool {
 	if a > b {

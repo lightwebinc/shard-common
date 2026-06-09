@@ -14,7 +14,7 @@ const (
 	ShardManifestFlagGroupsValid byte = 1 << 0
 
 	// ShardManifestFlagAuthoritative marks the announcer as an operator-curated
-	// authoritative source (see BRC-137 safety guidance).
+	// authoritative source (see BRC-139 safety guidance).
 	ShardManifestFlagAuthoritative byte = 1 << 1
 
 	// ShardManifestFlagShutdown marks the final announcement before a graceful
@@ -40,13 +40,13 @@ const (
 
 	// ShardManifestFlagSuccessorValid indicates the trailing payload includes
 	// a 24-byte Successor block describing an in-flight generation transition
-	// (BRC-137 §Successor block). The block lives immediately after the
+	// (BRC-139 §Successor block). The block lives immediately after the
 	// sources payload. Requires Authoritative=1; consumers MUST reject
 	// manifests with SuccessorValid=1 && Authoritative=0 as malformed.
 	ShardManifestFlagSuccessorValid byte = 1 << 6
 )
 
-// SuccessorBlockSize is the fixed size of the BRC-137 Successor block.
+// SuccessorBlockSize is the fixed size of the BRC-139 Successor block.
 const SuccessorBlockSize = 24
 
 // SuccessorFlag bits for [SuccessorBlock.Flags].
@@ -57,7 +57,7 @@ const (
 	SuccessorFlagSourceModeSSM byte = 1 << 0
 )
 
-// SuccessorBlock describes the incoming generation in a BRC-137
+// SuccessorBlock describes the incoming generation in a BRC-139
 // generation-transition signal. Encoded as 24 bytes immediately after the
 // sources payload when [ShardManifestFlagSuccessorValid] is set.
 type SuccessorBlock struct {
@@ -118,19 +118,19 @@ var (
 	ErrShardManifestBadCRC = errors.New("shard_manifest: CRC mismatch")
 
 	// ErrShardManifestBadSources is returned when SourcesValid / SourceCount
-	// coherence rules are violated (BRC-137 §Sources payload), e.g.
+	// coherence rules are violated (BRC-139 §Sources payload), e.g.
 	// SourcesValid=1 with SourceCount=0, or SourcesValid=0 with SourceCount>0.
 	ErrShardManifestBadSources = errors.New("shard_manifest: invalid sources encoding")
 
 	// ErrShardManifestBadSuccessor is returned when the Successor block fails
-	// BRC-137 validation: SuccessorValid set without an accompanying
+	// BRC-139 validation: SuccessorValid set without an accompanying
 	// SuccessorBlock, SuccessorBlock set without the flag, the announcer is
 	// not Authoritative, or the successor's ShardBits differs from the
 	// announcer's by more than ±1.
 	ErrShardManifestBadSuccessor = errors.New("shard_manifest: invalid successor block")
 )
 
-// ShardManifest is the in-memory representation of a BRC-137 ShardManifest
+// ShardManifest is the in-memory representation of a BRC-139 ShardManifest
 // datagram. It advertises a participant's shard_bits configuration and
 // optional joined-groups claim.
 //
@@ -146,7 +146,7 @@ var (
 // be empty (identity-only manifest).
 //
 // Sources, when non-empty, carries the publisher source IPv6 addresses
-// contributed by this announcer (BRC-137 §Sources payload). It is encoded
+// contributed by this announcer (BRC-139 §Sources payload). It is encoded
 // as the trailing K × 16 bytes of the datagram, appearing after the
 // groups payload. [ShardManifestFlagSourcesValid] MUST be set when
 // Sources is non-empty and MUST be clear when Sources is empty.
@@ -164,7 +164,7 @@ type ShardManifest struct {
 	Bitmap           []byte
 	Sources          [][16]byte
 
-	// Successor describes an in-flight generation transition (BRC-137
+	// Successor describes an in-flight generation transition (BRC-139
 	// §Successor block). Non-nil iff [ShardManifestFlagSuccessorValid] is
 	// set in Flags. Decode rejects datagrams that violate the coherence or
 	// ±1 ShardBits-shift rules.
@@ -452,7 +452,7 @@ func DecodeShardManifest(buf []byte) (*ShardManifest, error) {
 			TransitionEpoch: binary.BigEndian.Uint32(buf[off+20 : off+24]),
 		}
 		copy(s.GenerationID[:], buf[off:off+16])
-		// Reserved bytes [18:20] are ignored on receive per BRC-137 forward-
+		// Reserved bytes [18:20] are ignored on receive per BRC-139 forward-
 		// compatibility; producers MUST set them to zero (enforced in encode).
 		if s.ShardBits > MaxShardBits {
 			return nil, fmt.Errorf("%w: successor ShardBits %d exceeds maximum %d",
@@ -471,7 +471,7 @@ func DecodeShardManifest(buf []byte) (*ShardManifest, error) {
 	return m, nil
 }
 
-// withinOneBit reports whether |a-b| ≤ 1. Used to enforce the BRC-137
+// withinOneBit reports whether |a-b| ≤ 1. Used to enforce the BRC-139
 // Successor-block constraint that the incoming generation's ShardBits
 // differs from the active one by at most ±1.
 func withinOneBit(a, b uint8) bool {
@@ -481,7 +481,7 @@ func withinOneBit(a, b uint8) bool {
 	return b-a <= 1
 }
 
-// IsShardManifest reports whether buf begins with a valid BRC-137 ShardManifest
+// IsShardManifest reports whether buf begins with a valid BRC-139 ShardManifest
 // header (magic + MsgType == 0x40) without performing a full decode. It returns
 // false for any buffer shorter than [ShardManifestHeaderSize].
 func IsShardManifest(buf []byte) bool {

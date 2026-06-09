@@ -202,13 +202,13 @@ const (
 	// in bytes.
 	SubtreeGroupAnnounceSize = 64
 
-	// MsgTypeShardManifest identifies a BRC-137 shard manifest announcement
+	// MsgTypeShardManifest identifies a BRC-139 shard manifest announcement
 	// datagram. Sent periodically by every multicast participant to the
 	// GroupBeacon multicast group to advertise its shard_bits configuration
 	// and the set of shard groups it has joined.
 	MsgTypeShardManifest byte = 0x40
 
-	// ShardManifestHeaderSize is the fixed size of the BRC-137 ShardManifest
+	// ShardManifestHeaderSize is the fixed size of the BRC-139 ShardManifest
 	// datagram header in bytes. The trailing payload (joined-groups list or
 	// bitmap) follows the header.
 	ShardManifestHeaderSize = 64

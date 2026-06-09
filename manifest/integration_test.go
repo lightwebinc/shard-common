@@ -12,7 +12,7 @@ import (
 	"github.com/lightwebinc/shard-common/manifest"
 )
 
-// TestIntegration_WireRoundTrip exercises the full BRC-137 pipeline end
+// TestIntegration_WireRoundTrip exercises the full BRC-139 pipeline end
 // to end without external infrastructure: encode a manifest, send it
 // across a loopback UDP socket, receive and decode it, upsert into a
 // registry, and confirm the evaluator adopts the value after quorum +

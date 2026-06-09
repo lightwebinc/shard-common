@@ -16,7 +16,7 @@ by `shard-proxy`, `shard-listener`, `retry-endpoint`, `subtx-generator`, and
 
 | Package    | Purpose                                                                 |
 | ---------- | ----------------------------------------------------------------------- |
-| `frame`    | Wire format codec: BRC-12/124/128 frames, BRC-127 announce, BRC-130 fragments, BRC-131 blocks, BRC-132 subtree data, BRC-134 anchor txs, BRC-135 block headers, BRC-137 shard manifest |
+| `frame`    | Wire format codec: BRC-12/124/128 frames, BRC-127 announce, BRC-130 fragments, BRC-131 blocks, BRC-132 subtree data, BRC-134 anchor txs, BRC-135 block headers, BRC-139 shard manifest |
 | `shard`    | TxID → IPv6 multicast group derivation (consistent-hash); control groups |
 | `seqhash`  | XXH64 per-flow HashKey computation                                      |
 | `sequence` | Per-shard monotonic counters (`sync/atomic`, zero-alloc)                |
@@ -24,7 +24,7 @@ by `shard-proxy`, `shard-listener`, `retry-endpoint`, `subtx-generator`, and
 | `txidset`  | Two-tier TxID dedup: tier-1 in-process LRU (zero-alloc hot path) + optional tier-2 `cache.Backend` SETNX; fail-open on backend errors |
 | `netjoin`  | IPv6 multicast `Join`/`Leave` — branches `IPV6_JOIN_GROUP` (ASM) and `MCAST_JOIN_SOURCE_GROUP` (SSM, RFC 3678) by source-list presence; token-bucket `Limiter` and `Jitter` helper for cold-start storm protection at scale. Powers the SSM join sites in every receiver. |
 | `bootstrap`| DNS-resolving source-set tracker for SSM `(S,G)` bootstrap lists: fail-closed startup, last-good retention on refresh failures, diff-callback for join/leave plumbing. |
-| `manifest` | BRC-137 auto-shard-config consumer: TTL-bounded `Registry` keyed on `(SrcIPv6, InstanceID)` and an `Evaluator` implementing the normative consumer profile (Authoritative quorum, hysteresis, ±1 ShardBits shift bound, manual-pin precedence, divergence telemetry, Successor-block adoption for live re-sharding). Powers proxy and listener auto-config when `-manifest-consumer-enabled` is set. |
+| `manifest` | BRC-139 auto-shard-config consumer: TTL-bounded `Registry` keyed on `(SrcIPv6, InstanceID)` and an `Evaluator` implementing the normative consumer profile (Authoritative quorum, hysteresis, ±1 ShardBits shift bound, manual-pin precedence, divergence telemetry, Successor-block adoption for live re-sharding). Powers proxy and listener auto-config when `-manifest-consumer-enabled` is set. |
 | `logging`  | Unified structured-logging entrypoint for every binary: `Init` installs a process-wide `slog` default with the `service.{name,instance.id,version}` identity triple (shared with OTLP metrics) and returns a runtime `*slog.LevelVar`; `LevelHandler` (HTTP `/loglevel`), `InstallSIGHUPToggle`, and a `Throttle` (log-once-then-count) for the data-plane/error log-economy discipline. JSON→stdout, text→stderr. See [`docs/logging.md`](docs/logging.md). |
 | `hostinfo` | One-shot host inventory (`Gather` → `host.inventory` log event): OS/kernel, CPU, memory, per-NIC facts incl. **both IPv4 and IPv6** addresses + link speed/driver (Linux sysfs), and the multicast-gating sysctls. Pure-Go (gopsutil); best-effort, never fails startup. |
 | `tracing`  | Opt-in OpenTelemetry tracer for control-plane flows. `Init` returns a **no-op tracer when sampling ≤ 0 or no OTLP endpoint** (zero cost); otherwise an OTLP/gRPC exporter mirroring the metrics OTLP path. MUST NOT be wired into the packet hot path. |
@@ -34,16 +34,16 @@ The `shard` package also exposes the SSM addressing helpers: `SourceMode`
 `FF05` (ASM site), `FF35` (SSM site), `FF3E` (SSM global) and rejects ASM
 at global scope per RFC 8815.
 
-The `frame.ShardManifest` codec implements BRC-137's SSM and
+The `frame.ShardManifest` codec implements BRC-139's SSM and
 live-resharding extensions: `Flags.SourceModeSSM` (bit 3),
 `Flags.SourcesValid` (bit 4), `Flags.PilotOnly` (bit 5),
 `Flags.SuccessorValid` (bit 6), `SourceCount` at bytes [42:44], the
 trailing `SourceCount × 16`-byte sources payload, and the 24-byte
 `SuccessorBlock` carrying `(GenerationID, ShardBits, Flags, TransitionEpoch)`
 for in-flight generation transitions. See the
-[SSM Support Plan](https://github.com/lightwebinc/bsv-multicast/blob/main/docs/SourceSpecificMulticast/ssm-support-plan.md)
+[SSM Support Plan](https://github.com/lightwebinc/bsv-multicast/blob/main/DESIGN.md#source-specific-multicast-ssm)
 and the
-[Automatic Shard Configuration Plan](https://github.com/lightwebinc/bsv-multicast/blob/main/docs/AutoShardConfig/auto-shard-config-plan.md)
+[Automatic Shard Configuration Plan](https://github.com/lightwebinc/bsv-multicast/blob/main/DESIGN.md#automatic-shard-configuration)
 for the system-level designs.
 
 ## Documentation
