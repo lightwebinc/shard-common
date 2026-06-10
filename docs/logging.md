@@ -24,8 +24,7 @@
 ## Why
 
 A multicast fabric of hundreds-to-thousands of proxies, listeners, and retry
-endpoints cannot be operated by SSH-ing into hosts. Metrics
-([conventions.md § Metrics](../../multicast-skills/conventions.md)) already give
+endpoints cannot be operated by SSH-ing into hosts. Metrics already give
 us aggregate counters with consistent identity (`service.name`,
 `service.instance.id`, `service.version` resource attributes + per-group/worker
 labels). Logs are the other half — the *per-event narrative* metrics can't
@@ -389,8 +388,7 @@ lines**, and the collector compresses what remains on the wire.
 
 ## Config surface (Phases 2 & 4)
 
-Per [conventions.md § Configuration](../../multicast-skills/conventions.md) every
-flag gets an UPPERCASE env equivalent, in the per-repo `config/` package.
+Every flag gets an UPPERCASE env equivalent, in the per-repo `config/` package.
 
 | Flag | Env | Default | Meaning |
 |------|-----|---------|---------|
@@ -404,8 +402,7 @@ existing units; emits a category-3 warning when used. Tracing reuses the existin
 
 ## Cross-repo documentation checklist
 
-Per [conventions.md § Cross-Repo Feature Documentation](../../multicast-skills/conventions.md#cross-repo-feature-documentation-load-bearing-checklist),
-when Phases 1–4 ship:
+When Phases 1–4 ship, update:
 
 - **shard-common**: `README.md` Packages table + `docs/` entry for the new
   `logging` (+ `hostinfo`) package (the identity/format/level contract and the
@@ -417,9 +414,6 @@ when Phases 1–4 ship:
   enums (`{text,json}`, `{debug,info,warn,error}`); `README.md` values reference.
 - **Infra repos**: `config.env.j2` gains `LOG_FORMAT`/`LOG_LEVEL`. (Collector +
   node_exporter roles are the deferred rollout phase, not here.)
-- **multicast-skills**: add a `logging.md` skill (or a Logging section in
-  `conventions.md`) capturing the taxonomy and attribute vocabulary so future
-  call sites inherit the discipline.
 
 ## Open questions
 
