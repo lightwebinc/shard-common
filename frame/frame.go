@@ -26,7 +26,7 @@
 //	     0     4   —     Network magic  0xE3E1F3E8 (BSV mainnet P2P magic)
 //	     4     2   —     Protocol ver   0x02BF = 703 (BSV node version baseline)
 //	     6     1   —     Frame version  0x02 (BRC-124/BRC-128)
-//	     7     1   —     IngressDomain  BRC-140 ingress-domain tag; 0 = default/unbranded (was Reserved 0x00)
+//	     7     1   —     Reserved       0x00
 //	     8    32   8B    TxID           raw 256-bit txid (NOT display-reversed)
 //	    40     8   8B    HashKey        XXH64(senderIPv6 ∥ groupIdx ∥ subtreeID); stable per flow; 0 = unset
 //	    48     8   8B    SeqNum         Monotonic counter per flow; 0 = unset/unstamped
@@ -250,12 +250,7 @@ type Frame struct {
 	HashKey   uint64   // Stable per-flow identifier: XXH64(senderIPv6 ∥ groupIdx ∥ subtreeID); 0 = unset
 	SeqNum    uint64   // Monotonic per-flow counter starting at 1; 0 = unset/unstamped
 	SubtreeID [32]byte // 32-byte batch identifier; zeros = unset (always zero for BRC-12)
-	// IngressDomain is the BRC-140 ingress-domain tag at header offset 7 (the formerly
-	// reserved byte): the co-branded ingress domain that admitted this tx. 0 = default /
-	// unbranded (and what legacy frames carry). Stamped by the ingress proxy; read by an
-	// edge for per-domain filter/meter. Does not affect gap/NACK/dedup.
-	IngressDomain uint8
-	Payload       []byte // Raw serialised BSV transaction
+	Payload   []byte   // Raw serialised BSV transaction
 }
 
 // Encode serialises f into buf and returns the number of bytes written.
@@ -271,7 +266,7 @@ func Encode(f *Frame, buf []byte) (int, error) {
 	binary.BigEndian.PutUint32(buf[0:4], MagicBSV)
 	binary.BigEndian.PutUint16(buf[4:6], ProtoVer)
 	buf[6] = FrameVerV2
-	buf[7] = f.IngressDomain // BRC-140 ingress-domain tag (0 = default/unbranded)
+	buf[7] = 0
 	copy(buf[8:40], f.TxID[:])
 	binary.BigEndian.PutUint64(buf[40:48], f.HashKey)
 	binary.BigEndian.PutUint64(buf[48:56], f.SeqNum)
@@ -418,7 +413,6 @@ func decodeV2(buf []byte) (*Frame, error) {
 		return nil, io.ErrUnexpectedEOF
 	}
 	f := &Frame{Version: FrameVerV2}
-	f.IngressDomain = buf[7] // BRC-140 ingress-domain tag (0 = default/legacy)
 	copy(f.TxID[:], buf[8:40])
 	f.HashKey = binary.BigEndian.Uint64(buf[40:48])
 	f.SeqNum = binary.BigEndian.Uint64(buf[48:56])

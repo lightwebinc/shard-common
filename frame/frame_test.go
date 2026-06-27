@@ -108,31 +108,6 @@ func TestRoundTripSeqFields(t *testing.T) {
 	}
 }
 
-func TestRoundTripIngressDomain(t *testing.T) {
-	payload := []byte("tx")
-	f := &Frame{Payload: payload, HashKey: 1, SeqNum: 1, IngressDomain: 42}
-	buf := make([]byte, HeaderSize+len(payload))
-	if _, err := Encode(f, buf); err != nil {
-		t.Fatal(err)
-	}
-	// BRC-140: the tag is at header offset 7.
-	if buf[7] != 42 {
-		t.Fatalf("IngressDomain not at offset 7: buf[7]=%d", buf[7])
-	}
-	got, err := Decode(buf)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.IngressDomain != 42 {
-		t.Fatalf("IngressDomain round-trip: got %d, want 42", got.IngressDomain)
-	}
-	// Backward-compat: a legacy frame (byte 7 = 0) decodes to the default domain 0.
-	buf[7] = 0
-	if g2, _ := Decode(buf); g2.IngressDomain != 0 {
-		t.Fatalf("legacy frame should decode to domain 0, got %d", g2.IngressDomain)
-	}
-}
-
 // ── Field offsets ─────────────────────────────────────────────────────────────
 
 func TestFieldOffsets(t *testing.T) {
