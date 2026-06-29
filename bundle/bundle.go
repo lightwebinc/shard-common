@@ -54,9 +54,9 @@ const (
 	// MaxMembers is the uint16 TxCount ceiling.
 	MaxMembers = 1<<16 - 1
 
-	// MaxMemberTx is the largest member transaction the uint16 length prefix can
-	// express.
-	MaxMemberTx = 1<<16 - 1
+	// MaxMemberTxLen is the largest member transaction length the uint16 length
+	// prefix can express (a length ceiling, not a member count — cf. MaxMembers).
+	MaxMemberTxLen = 1<<16 - 1
 
 	memberLenSize  = 2
 	memberTxIDSize = 32
@@ -76,6 +76,9 @@ var (
 	ErrTooMany = errors.New("bundle: member count exceeds uint16")
 	// ErrMemberBig is returned when a member transaction exceeds the uint16 length.
 	ErrMemberBig = errors.New("bundle: member tx length exceeds uint16")
+	// ErrCountMismatch is returned when the TxCount members do not consume the
+	// declared PayloadLen exactly (TxCount and PayloadLen disagree).
+	ErrCountMismatch = errors.New("bundle: member section not consumed exactly")
 )
 
 // Member is one transaction inside a bundle. Tx is the serialised BSV
@@ -147,7 +150,7 @@ func (b *Bundle) Encode() ([]byte, error) {
 	off := HeaderSize
 	for i := range b.Members {
 		m := &b.Members[i]
-		if len(m.Tx) > MaxMemberTx {
+		if len(m.Tx) > MaxMemberTxLen {
 			return nil, fmt.Errorf("%w: %d", ErrMemberBig, len(m.Tx))
 		}
 		binary.BigEndian.PutUint16(buf[off:off+2], uint16(len(m.Tx)))
@@ -211,6 +214,12 @@ func Decode(buf []byte) (*Bundle, error) {
 		m.Tx = buf[off : off+txLen]
 		off += txLen
 		b.Members = append(b.Members, m)
+	}
+	// The TxCount members must consume the declared PayloadLen exactly; leftover
+	// bytes mean TxCount and PayloadLen disagree (a malformed or misaligned
+	// bundle), which is rejected rather than silently ignored.
+	if off != end {
+		return nil, ErrCountMismatch
 	}
 	return b, nil
 }

@@ -2,6 +2,7 @@ package bundle
 
 import (
 	"bytes"
+	"encoding/binary"
 	"errors"
 	"testing"
 
@@ -119,10 +120,20 @@ func TestDecodeErrors(t *testing.T) {
 	if _, err := Decode(good[:len(good)-3]); !errors.Is(err, ErrTruncated) {
 		t.Errorf("truncated: got %v", err)
 	}
+
+	// TxCount members consuming fewer bytes than the declared PayloadLen: append
+	// 4 trailing bytes and inflate PayloadLen to cover them (so the datagram is
+	// long enough to pass the truncation check), leaving the member section short
+	// of PayloadLen — a TxCount/PayloadLen disagreement.
+	trail := append(append([]byte(nil), good...), 0, 0, 0, 0)
+	binary.BigEndian.PutUint32(trail[62:66], binary.BigEndian.Uint32(trail[62:66])+4)
+	if _, err := Decode(trail); !errors.Is(err, ErrCountMismatch) {
+		t.Errorf("count mismatch: got %v, want ErrCountMismatch", err)
+	}
 }
 
 func TestMemberTooBig(t *testing.T) {
-	b := &Bundle{Members: []Member{{Tx: make([]byte, MaxMemberTx+1)}}}
+	b := &Bundle{Members: []Member{{Tx: make([]byte, MaxMemberTxLen+1)}}}
 	if _, err := b.Encode(); !errors.Is(err, ErrMemberBig) {
 		t.Errorf("got %v, want ErrMemberBig", err)
 	}
