@@ -151,6 +151,14 @@ const (
 	// retransmitted via BRC-126 on the primary fabric.
 	FrameVerV7 byte = 0x07
 
+	// FrameVerV8 is the BRC-142 coalescing bundle frame version. A bundle has a
+	// 66-byte header followed by a length-prefixed member section packing many
+	// small transactions of one (group, subtree) flow into a single datagram.
+	// It is not layout-compatible with BRC-124; decode it with the `bundle`
+	// package. [Decode] returns [ErrBadVer] for 0x08, like other extension
+	// versions, so single-transaction callers can distinguish it.
+	FrameVerV8 byte = 0x08
+
 	// BlockMsgAnnounce identifies a BlockAnnounce payload in a FrameVerV4 frame.
 	// The payload carries the 80-byte block header, coinbase TxID, and subtree hashes.
 	BlockMsgAnnounce byte = 0x01
@@ -331,6 +339,11 @@ func Decode(buf []byte) (*Frame, error) {
 		// an error so callers that only handle Frame can distinguish them.
 		// Use [DecodeBlockHeader] to obtain a [Frame] with Version=FrameVerV7.
 		return nil, fmt.Errorf("%w: FrameVer 0x07 is a BRC-135 block header frame; use DecodeBlockHeader", ErrBadVer)
+	case FrameVerV8:
+		// BRC-142 bundle frames pack many transactions into one datagram and
+		// are decoded separately; Decode returns an error so callers that only
+		// handle a single-tx Frame can distinguish them. Use the bundle package.
+		return nil, fmt.Errorf("%w: FrameVer 0x08 is a BRC-142 bundle frame; use bundle.Decode", ErrBadVer)
 	default:
 		return nil, fmt.Errorf("%w: got 0x%02X", ErrBadVer, fver)
 	}
@@ -401,6 +414,19 @@ func IsAnchorFrame(buf []byte) bool {
 		return false
 	}
 	return buf[6] == FrameVerV6
+}
+
+// IsBundle reports whether buf begins with a valid BRC-142 bundle header
+// (magic + FrameVer == 0x08) without performing a full decode. It returns false
+// for any buffer shorter than [HeaderSizeLegacy].
+func IsBundle(buf []byte) bool {
+	if len(buf) < HeaderSizeLegacy {
+		return false
+	}
+	if binary.BigEndian.Uint32(buf[0:4]) != MagicBSV {
+		return false
+	}
+	return buf[6] == FrameVerV8
 }
 
 // decodeV2 parses the 92-byte BRC-124/BRC-128 header.
