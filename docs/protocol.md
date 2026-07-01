@@ -106,6 +106,77 @@ for BRC-12 and BRC-124/BRC-128 — both formats share the same listener.
 
 ---
 
+## 3a. BRC-142 Coalescing (Bundle) Frame Format
+
+**Header size:** 66 bytes (fixed). **Frame version:** `0x08`.
+**Byte order:** big-endian for all multi-byte integers.
+
+A *bundle* packs many small BSV transactions of one `(sender, group, subtree)`
+flow into a single datagram — the inverse of BRC-130 fragmentation. It is decoded
+by the `bundle` package (not `frame.Decode`, which returns `ErrBadVer` for
+`0x08`). `frame.IsBundle(buf)` reports a bundle header without a full decode.
+
+```text
+Offset  Size  Field          Value / notes
+------  ----  -----          -------------
+     0     4  Network magic  0xE3E1F3E8
+     4     2  Protocol ver   0x02BF
+     6     1  Frame version  0x08 (BRC-142 bundle)
+     7     1  Flags          bit0 = per-member TxIDs present (all-or-none)
+     8    32  SubtreeID      the single subtree shared by all members
+    40     8  HashKey        XXH64(senderIPv6 ∥ groupIdx ∥ subtreeID); flow id
+    48     8  SeqNum         monotonic per (sender, group, subtree) bundle flow
+    56     2  GroupIdx       shard group the bundle was built for
+    58     1  ShardBits      shard-bit width GroupIdx was computed at (1..12)
+    59     1  Reserved       0x00
+    60     2  TxCount        member count (uint16)
+    62     4  PayloadLen     total member-section length (uint32); bounds the parse
+    66     *  Members        [ TxLen u16 | (TxID 32B if flag) | tx bytes ] × TxCount
+```
+
+### 3a.1 Flags
+
+Only bit 0 is defined:
+
+- **`FlagTxIDsPresent` (bit 0)** — when set, every member is preceded on the wire
+  by its 32-byte TxID. The flag is **all-or-none** across a bundle: either every
+  member carries a TxID or none does. `Bundle.TxIDsPresent()` reports the bit.
+
+### 3a.2 Member section
+
+Members begin at offset 66 and occupy exactly `PayloadLen` bytes. Each member is:
+
+```text
+TxLen   uint16 BE  — length of this member's tx bytes (fixed-width prefix)
+TxID    32 bytes   — present only when FlagTxIDsPresent is set
+tx      TxLen      — raw BSV tx (BRC-12) or BRC-30 Extended Format (self-identifying)
+```
+
+The length prefix is a fixed `uint16` (a member is ≤ one datagram, so 16 bits
+suffice and a fixed width keeps the parse branch-free). EF members self-identify
+via the BRC-30/BRC-128 marker, so no per-member type flag is carried.
+
+The `TxCount` members MUST consume `PayloadLen` **exactly**; leftover bytes mean
+`TxCount` and `PayloadLen` disagree and the bundle is rejected
+(`ErrCountMismatch`) rather than silently truncated. Decode is zero-copy —
+`Member.Tx` slices alias the input buffer.
+
+### 3a.3 Coalesce / decoalesce / re-bucket
+
+- **Coalesce** — a `Coalescer` packs individual same-`(group, subtree)` frames
+  into a bundle up to the MTU, then flushes. A bundle carries a single HashKey
+  and SeqNum and slots into BRC-126 NACK/retry as one "fat frame," keeping
+  ordering and gap detection unchanged. Coalescing runs at the **origin**
+  (ingress/collapsed); the spine relays a bundle verbatim.
+- **Decoalesce** — `Decoalesce` splits a bundle back into individual frames at
+  the delivery edge (listener/consumer), reconstructing per-member frames for
+  downstream single-transaction consumers.
+- **Re-bucket** — a `Rebucketer` re-aligns a bundle to the current shard
+  generation (`GroupIdx`/`ShardBits`) at the listener when the receiver's shard
+  configuration differs from the bundle's; the mid-fabric spine stays verbatim.
+
+---
+
 ## 4. Subtree Model
 
 A *subtree* is an ordered set of related transactions sharing a common batch
@@ -209,6 +280,7 @@ a `reason` label (`decode_error`, `write_error`, or `truncated`).
 | `FrameVerV5` | `0x05` | BRC-132 subtree data frames |
 | `FrameVerV6` | `0x06` | BRC-134 chained anchor transaction frames |
 | `FrameVerV7` | `0x07` | BRC-135 block header frames (emitter-originated) |
+| `FrameVerV8` | `0x08` | BRC-142 coalescing bundle frames (66-byte header) |
 | `HeaderSizeLegacy` | `44` | Legacy BRC-12 header bytes |
 | `HeaderSize` | `92` | BRC-124/128/131/132/134/135 header bytes |
 | `HeaderSizeV3` | `104` | BRC-130 fragment header bytes |
