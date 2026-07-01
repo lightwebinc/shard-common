@@ -407,9 +407,10 @@ When Phases 1–4 ship, update:
 - **shard-common**: `README.md` Packages table + `docs/` entry for the new
   `logging` (+ `hostinfo`) package (the identity/format/level contract and the
   `host.inventory` field list); note the new gopsutil dependency.
-- **Each service repo**: `docs/configuration.md` (the two new flags, the
-  `-debug` deprecation), `docs/architecture.md` (a "Logging" section naming the
-  category-8 syscall sites for proxy/listener), `README.md` quick-start line.
+- **Each service repo** (its own docs, not shard-common's): `docs/configuration.md`
+  (the two new flags, the `-debug` deprecation), `docs/architecture.md` (a
+  "Logging" section naming the category-8 syscall sites for proxy/listener),
+  `README.md` quick-start line.
 - **Helm charts**: `values.yaml` `logFormat`/`logLevel` keys + `values.schema.json`
   enums (`{text,json}`, `{debug,info,warn,error}`); `README.md` values reference.
 - **Infra repos**: `config.env.j2` gains `LOG_FORMAT`/`LOG_LEVEL`. (Collector +

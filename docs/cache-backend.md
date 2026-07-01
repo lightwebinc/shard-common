@@ -171,7 +171,8 @@ equivalents.
 ## Cross-repo surfaces (complete)
 
 - **Go services** — `shard-proxy`, `shard-listener`, `retry-endpoint`: flags +
-  `docs/configuration.md` + `docs/architecture` notes.
+  each repo's own `docs/configuration.md` + `docs/architecture.md` notes (not
+  shard-common's `docs/`).
 - **shard-common** — `cache` package + README packages table.
 - **Helm charts** — `retry-endpoint-helm` (`cacheBackend` + `aerospike*`),
   `shard-proxy-helm` (`txidDedup.backend` + `aerospike*`), `shard-listener-helm`
@@ -184,5 +185,5 @@ equivalents.
   `aerospike` Ansible role (CE install + namespace provisioning, gated on an
   `aerospike_nodes` inventory group). `multicast-kube-infra` documents deploying
   the backend as an in-cluster workload.
-- **skills** — `architecture.md` (freecache → modular note) and `conventions.md`
-  (Modular Cache Backend section).
+- **skills** — the `multicast-skills` repo's `architecture.md` (freecache →
+  modular note) and `conventions.md` (Modular Cache Backend section).
