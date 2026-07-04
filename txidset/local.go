@@ -103,17 +103,3 @@ func (s *localShard) seenAndAdd(key [32]byte) bool {
 	s.entries[key] = expiry
 	return false
 }
-
-// Len reports the current populated-slot count across all shards.
-func (l *localSet) Len() int {
-	if l.disabled {
-		return 0
-	}
-	var total int
-	for _, s := range l.shards {
-		s.mu.Lock()
-		total += s.count
-		s.mu.Unlock()
-	}
-	return total
-}
