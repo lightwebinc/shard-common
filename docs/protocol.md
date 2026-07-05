@@ -10,76 +10,28 @@ correctly.
 
 ## 2. BRC-124 Frame Format (current)
 
-**Header size:** 92 bytes.  
-**Byte order:** big-endian for all multi-byte integers.
+Canonical wire spec (full offset tables and field semantics):
+[BRC-124 Frame Format](https://github.com/lightwebinc/bsv-multicast/blob/main/docs/brc-124-frame-format.md);
+EF payload semantics:
+[BRC-128 EF Frame Format](https://github.com/lightwebinc/bsv-multicast/blob/main/docs/brc-128-ef-frame-format.md).
 
-```text
-Offset  Size  Align  Field                 Value / notes
-------  ----  -----  -----                 -------------
-     0     4   —     Network magic         0xE3E1F3E8 (BSV mainnet P2P magic)
-     4     2   —     Protocol ver          0x02BF = 703
-     6     1   —     Frame version         0x02 (BRC-124/BRC-128)
-     7     1   —     Reserved              0x00
-     8    32   8B    Transaction ID        raw 256-bit txid (internal byte order)
-    40     8   8B    HashKey               XXH64 per-flow identifier; 0 = unstamped
-    48     8   8B    SeqNum                monotonic per-flow counter; 0 = unstamped
-    56    32   8B    Subtree ID            32-byte batch identifier; zeros = unset
-    88     4   8B    Payload length        uint32; max 10 MiB
-    92     *   —     BSV tx payload        raw serialised transaction bytes (BRC-12 or BRC-30 Extended Format for BRC-128)
-```
+Codec summary (`frame` package):
 
-**Alignment verification:**
-| Field | Offset | Offset % 8 |
-|-----------|--------|------------|
-| TXID | 8 | 0 ✓ |
-| HashKey | 40 | 0 ✓ |
-| SeqNum | 48 | 0 ✓ |
-| SubtreeID | 56 | 0 ✓ |
-| PayLen | 88 | 0 ✓ |
-
-### 2.1 Fields
-
-**Network magic (0:4)** — `0xE3E1F3E8`. The BSV mainnet P2P network magic.
-Frames that do not start with this value are rejected.
-
-**Protocol version (4:6)** — `0x02BF` (703). The BSV node protocol version
-baseline that introduced the large-block policy. This field is informational;
-receivers do not validate it.
-
-**Frame version (6)** — `0x02` for BRC-124/BRC-128, `0x01` for BRC-12 (legacy, see §3). Any other
-value is rejected. Both BRC-12 and BRC-124/BRC-128 frames are forwarded verbatim.
-
-**Reserved (7)** — Must be `0x00`. Reserved for future use.
-
-**Transaction ID (8:40)** — 32 bytes. The raw 256-bit txid in internal byte
-order as used in the BSV P2P protocol — **not** the reversed display order
-shown by block explorers. The top bits of `txid[0:4]` are used by the shard
-engine to derive the multicast group index.
-
-**HashKey (40:48)** — `uint64` big-endian. Stable per-flow identifier computed
-as `XXH64(senderIPv6 ∥ groupIdx ∥ subtreeID)`. Identifies the unique
-`(sender, group, subtree)` flow. Set either by the sender or stamped in-place
-by the proxy (see §6). A value of `0` means unstamped.
-
-**SeqNum (48:56)** — `uint64` big-endian. Monotonic per-flow counter, starting
-at 1. Each new frame in a flow increments this value. Set either by the sender
-or stamped in-place by the proxy (see §6). A value of `0` means unstamped.
-Receivers track the last-seen SeqNum per HashKey; a jump of more than 1
-indicates a gap that triggers NACK-based retransmission.
-
-**Subtree ID (56:88)** — 32 bytes. An opaque batch identifier assigned by the
-transaction processor. All-zero bytes mean the field is unset. Passed through
-unchanged by the proxy.
-
-**Payload length (88:92)** — `uint32` big-endian. The number of payload bytes
-immediately following the header. The application determines the maximum accepted size.
-
-**Payload (92+)** — Raw serialised BSV transaction (BRC-12) or BRC-30 Extended
-Format (EF) transaction (BRC-128). Same format as the BSV P2P `tx` message
-payload (version LE32 + inputs + outputs + locktime LE32) for BRC-12, or the
-EF serialisation for BRC-30. No P2P message envelope wraps it. BRC-128 payloads
-are self-identifying via a 6-byte marker at payload bytes 4–9
-(`0x000000000000EF`); infrastructure components are payload-agnostic.
+- **92-byte big-endian header**, all 8-byte fields 8-byte aligned:
+  Magic `0xE3E1F3E8` (BSV mainnet P2P), ProtoVer `0x02BF` (informational),
+  FrameVer `0x02`, Reserved `0x00`, TxID (32 B, internal byte order — the top
+  bits of `txid[0:4]` drive shard derivation, §5), HashKey (8 B), SeqNum (8 B),
+  SubtreeID (32 B, zeros = unset), PayloadLen (`uint32`; the application
+  determines the maximum accepted size).
+- **HashKey** = `XXH64(senderIPv6 ∥ groupIdx ∥ subtreeID)`, the unique
+  `(sender, group, subtree)` flow id. **SeqNum** is a monotonic per-flow
+  counter starting at 1. `0` means unstamped — set by the sender or stamped
+  in-place by the proxy (§6). Receivers track last-seen SeqNum per HashKey; a
+  jump > 1 is a gap that triggers BRC-126 NACK retransmission.
+- **Payload** — raw serialised BSV tx (BRC-12) or BRC-30 Extended Format
+  (BRC-128), no P2P envelope. EF payloads self-identify via the 6-byte marker
+  at payload bytes 4–9 (`0x000000000000EF`); infrastructure components are
+  payload-agnostic.
 
 ---
 
@@ -108,72 +60,28 @@ for BRC-12 and BRC-124/BRC-128 — both formats share the same listener.
 
 ## 3a. BRC-142 Coalescing (Bundle) Frame Format
 
-**Header size:** 66 bytes (fixed). **Frame version:** `0x08`.
-**Byte order:** big-endian for all multi-byte integers.
+Canonical wire spec (header/member offset tables, flag semantics):
+[BRC-142 Coalescing Frame](https://github.com/lightwebinc/bsv-multicast/blob/main/docs/brc-142-coalescing-frame.md).
 
-A *bundle* packs many small BSV transactions of one `(sender, group, subtree)`
-flow into a single datagram — the inverse of BRC-130 fragmentation. It is decoded
-by the `bundle` package (not `frame.Decode`, which returns `ErrBadVer` for
-`0x08`). `frame.IsBundle(buf)` reports a bundle header without a full decode.
+Codec summary (`bundle` package; FrameVer `0x08`, 66-byte big-endian header):
 
-```text
-Offset  Size  Field          Value / notes
-------  ----  -----          -------------
-     0     4  Network magic  0xE3E1F3E8
-     4     2  Protocol ver   0x02BF
-     6     1  Frame version  0x08 (BRC-142 bundle)
-     7     1  Flags          bit0 = per-member TxIDs present (all-or-none)
-     8    32  SubtreeID      the single subtree shared by all members
-    40     8  HashKey        XXH64(senderIPv6 ∥ groupIdx ∥ subtreeID); flow id
-    48     8  SeqNum         monotonic per (sender, group, subtree) bundle flow
-    56     2  GroupIdx       shard group the bundle was built for
-    58     1  ShardBits      shard-bit width GroupIdx was computed at (1..12)
-    59     1  Reserved       0x00
-    60     2  TxCount        member count (uint16)
-    62     4  PayloadLen     total member-section length (uint32); bounds the parse
-    66     *  Members        [ TxLen u16 | (TxID 32B if flag) | tx bytes ] × TxCount
-```
-
-### 3a.1 Flags
-
-Only bit 0 is defined:
-
-- **`FlagTxIDsPresent` (bit 0)** — when set, every member is preceded on the wire
-  by its 32-byte TxID. The flag is **all-or-none** across a bundle: either every
-  member carries a TxID or none does. `Bundle.TxIDsPresent()` reports the bit.
-
-### 3a.2 Member section
-
-Members begin at offset 66 and occupy exactly `PayloadLen` bytes. Each member is:
-
-```text
-TxLen   uint16 BE  — length of this member's tx bytes (fixed-width prefix)
-TxID    32 bytes   — present only when FlagTxIDsPresent is set
-tx      TxLen      — raw BSV tx (BRC-12) or BRC-30 Extended Format (self-identifying)
-```
-
-The length prefix is a fixed `uint16` (a member is ≤ one datagram, so 16 bits
-suffice and a fixed width keeps the parse branch-free). EF members self-identify
-via the BRC-30/BRC-128 marker, so no per-member type flag is carried.
-
-The `TxCount` members MUST consume `PayloadLen` **exactly**; leftover bytes mean
-`TxCount` and `PayloadLen` disagree and the bundle is rejected
-(`ErrCountMismatch`) rather than silently truncated. Decode is zero-copy —
-`Member.Tx` slices alias the input buffer.
-
-### 3a.3 Coalesce / decoalesce / re-bucket
-
-- **Coalesce** — a `Coalescer` packs individual same-`(group, subtree)` frames
-  into a bundle up to the MTU, then flushes. A bundle carries a single HashKey
-  and SeqNum and slots into BRC-126 NACK/retry as one "fat frame," keeping
-  ordering and gap detection unchanged. Coalescing runs at the **origin**
-  (ingress/collapsed); the spine relays a bundle verbatim.
-- **Decoalesce** — `Decoalesce` splits a bundle back into individual frames at
-  the delivery edge (listener/consumer), reconstructing per-member frames for
-  downstream single-transaction consumers.
-- **Re-bucket** — a `Rebucketer` re-aligns a bundle to the current shard
-  generation (`GroupIdx`/`ShardBits`) at the listener when the receiver's shard
-  configuration differs from the bundle's; the mid-fabric spine stays verbatim.
+- A *bundle* packs many small BSV transactions of one `(sender, group,
+  subtree)` flow into a single datagram — the inverse of BRC-130
+  fragmentation. It carries a single HashKey/SeqNum and slots into BRC-126
+  NACK/retry as one "fat frame," keeping ordering and gap detection unchanged.
+- Decoded by `bundle.Decode` (not `frame.Decode`, which returns `ErrBadVer`
+  for `0x08`); `frame.IsBundle(buf)` reports a bundle header without a full
+  decode. Decode is zero-copy (`Member.Tx` slices alias the input buffer) and
+  rejects `TxCount`/`PayloadLen` disagreement with `ErrCountMismatch` rather
+  than silently truncating.
+- **`FlagTxIDsPresent` (bit 0, the only defined flag)** is all-or-none across
+  a bundle: either every member is preceded by its 32-byte TxID or none is.
+  `Bundle.TxIDsPresent()` reports the bit.
+- Helpers: a `Coalescer` packs same-`(group, subtree)` frames up to the MTU at
+  the **origin** (ingress/collapsed; the spine relays bundles verbatim);
+  `Decoalesce` splits a bundle back into individual frames at the delivery
+  edge; a `Rebucketer` re-aligns a bundle to the current shard generation
+  (`GroupIdx`/`ShardBits`) at the listener.
 
 ---
 
@@ -191,22 +99,21 @@ This field is optional. The proxy passes it through unchanged.
 
 ## 5. Shard Derivation
 
-The multicast group for a frame is derived from its `TxID`:
+Canonical addressing spec (zoning, control groups, scope rules):
+[BRC-129 Multicast Addressing](https://github.com/lightwebinc/bsv-multicast/blob/main/docs/brc-129-multicast-addressing.md).
+
+The `shard` package derives the multicast group for a frame from its `TxID`:
 
 ```
 groupIndex = (txid[0:4] as uint32 BE) >> (32 - shardBits)
 ```
 
 where `shardBits` is the configured `-shard-bits` value (default 2, range
-1–15). The group index maps to an IPv6 multicast address:
-
-```
-[FFsc::groupIndex]
-```
-
-where `sc` is the two-nibble scope code (e.g. `FF05` for site-local). The
-IANA group-id occupies bytes 12–13 (default `0x000B` = IANA Bitcoin
-allocation `FF0X::B`); the 16-bit shard index occupies bytes 14–15.
+1–12 — BRC-129 zoning: shard indices `0x0000`–`0x0FFF`). The group index maps
+to an IPv6 multicast address `[FFsc::groupIndex]`, where `sc` is the
+two-nibble scope code (e.g. `FF05` for site-local); the IANA group-id occupies
+bytes 12–13 (default `0x000B` = IANA Bitcoin allocation `FF0X::B`) and the
+16-bit shard index occupies bytes 14–15.
 
 **Consistent-hashing property:** increasing `shardBits` by 1 splits every
 existing group into exactly two child groups. Subscribers need only join
@@ -263,7 +170,8 @@ unsupported version byte, or read error).
 | Egress write error | logged; next interface attempted | logged; next interface attempted |
 
 All drops are counted in the `bsp_packets_dropped_total` Prometheus metric with
-a `reason` label (`decode_error`, `write_error`, or `truncated`).
+a `reason` label (e.g. `decode_error`, `write_error`, `truncated`,
+`bundle_malformed`); see the shard-proxy docs for the current reason set.
 
 ---
 
@@ -351,7 +259,7 @@ optional sources payload:
 | --- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
 | 3   | `ShardManifestFlagSourceModeSSM` | Announcer declares the data plane uses SSM (FF3x prefix per `shard.Prefix(SSM, scope)`).                          |
 | 4   | `ShardManifestFlagSourcesValid` | Trailing payload includes `SourceCount × 16` bytes of publisher source IPv6 addresses (network byte order).        |
-| 5   | `ShardManifestFlagPilotOnly`    | Announcer is a non-production pilot; production consumers MAY ignore.                                              |
+| 5   | `ShardManifestFlagPilotOnly`    | Manifest is exclusively a pilot/assignment broadcast (desired fleet state, not the announcer's own joins). Implies `Authoritative=1`; consumers MUST reject `PilotOnly=1 && Authoritative=0` as malformed. |
 
 `SourceCount` occupies bytes [42:44] (formerly reserved). The
 encoder/decoder enforce the BRC-139 coherence rules and return

@@ -8,7 +8,7 @@
 // (service.name, service.instance.id, service.version), so logs and metrics
 // join on shared dimensions in the backend.
 //
-// Output contract (see bsv-multicast/docs/UnifiedLogging/unified-logging-plan.md):
+// Output contract (see shard-common/docs/logging.md):
 //   - FormatJSON writes one JSON object per line to stdout (12-factor; the
 //     process emits, the collector ships).
 //   - FormatText writes human-readable lines to stderr (interactive/dev default).

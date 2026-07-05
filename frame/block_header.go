@@ -8,7 +8,7 @@
 //
 // The emitter stamps HashKey and SeqNum using its own identity:
 //
-//	HashKey = XXH64(emitterIPv6 ∥ 0xFFFE [BE uint32] ∥ zeros[32])
+//	HashKey = XXH64(emitterIPv6 ∥ 0xFFFA [BE uint32] ∥ zeros[32])
 //	SeqNum  = monotonic per-emitter counter, starting at 1
 //
 // BRC-135 frames are NOT retransmitted via BRC-126 on the primary fabric;
@@ -39,8 +39,8 @@ var ErrBadBlockHeaderLen = errors.New("frame: BRC-135 PayloadLen must equal Bloc
 //   - blockHash: SHA256d of the 80-byte header in internal byte order
 //     (identical to the ContentID field of the source BRC-131 BlockAnnounce).
 //   - hashKey: stable per-emitter flow identifier. Callers typically derive
-//     it once via seqhash.Hash(emitterIPv6, 0xFFFE, zeroSubtreeID) and reuse
-//     it for the lifetime of the emitter process.
+//     it once via seqhash.Hash(emitterIPv6, shard.GroupBlockHeader (0xFFFA),
+//     zeroSubtreeID) and reuse it for the lifetime of the emitter process.
 //   - seqNum: monotonic per-emitter counter, starting at 1.
 //   - header80: the raw 80-byte BSV block header; must be exactly
 //     [BlockHeaderSize] bytes.

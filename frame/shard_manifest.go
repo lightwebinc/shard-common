@@ -33,9 +33,12 @@ const (
 	// currently-valid manifests they hold.
 	ShardManifestFlagSourcesValid byte = 1 << 4
 
-	// ShardManifestFlagPilotOnly marks the announcer as a non-production
-	// pilot instance; production consumers MAY ignore manifests with this
-	// flag set.
+	// ShardManifestFlagPilotOnly marks the manifest as exclusively a
+	// pilot/assignment broadcast: the announcer is not itself joined to the
+	// announced groups and the groups payload describes desired fleet state,
+	// not its own joins. Implies Authoritative=1; per BRC-139 consumers MUST
+	// reject PilotOnly=1 && Authoritative=0 as malformed (this decoder does
+	// not enforce the rejection — it is the consumer's responsibility).
 	ShardManifestFlagPilotOnly byte = 1 << 5
 
 	// ShardManifestFlagSuccessorValid indicates the trailing payload includes

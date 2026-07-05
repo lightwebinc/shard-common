@@ -160,15 +160,16 @@ equivalents.
 ## Rollout
 
 1. **Release `shard-common`** with the `cache` package and the `txidset`
-   refactor (tag + `update-shard-common.sh`). Dependents pin the new version;
-   until then they build only inside the Go workspace.
+   refactor (tag shard-common, then bump the dependency in each consumer's
+   `go.mod`). Dependents pin the new version; until then they build only
+   inside the Go workspace.
 2. **proxy / listener / retry-endpoint** pick up the new flags. Defaults are
    unchanged (proxy/listener fail-open to tier-1 LRU; retry defaults to
    `memory`).
 3. **Aerospike adopters** provision the namespace (infra role) and set
    `-cache-backend=aerospike` / `*-backend=aerospike`.
 
-## Cross-repo surfaces (complete)
+## Cross-repo surfaces
 
 - **Go services** — `shard-proxy`, `shard-listener`, `retry-endpoint`: flags +
   each repo's own `docs/configuration.md` + `docs/architecture.md` notes (not
@@ -179,11 +180,6 @@ equivalents.
   (`egressDedup*` / `ingressSet*` backend + `aerospike*`): `values.yaml`,
   `values.schema.json` enums, and README values reference. Operators passing
   comma-separated `aerospikeHosts` via `--set` must escape commas.
-- **Infra** — `ingress-infra`, `listener-infra`, `retransmission-infra`:
-  `group_vars` + `config.env.j2` backend/aerospike vars and a `docs/networking.md`
-  cache-backend connectivity section. `retransmission-infra` ships an optional
-  `aerospike` Ansible role (CE install + namespace provisioning, gated on an
-  `aerospike_nodes` inventory group). `multicast-kube-infra` documents deploying
-  the backend as an in-cluster workload.
-- **skills** — the `multicast-skills` repo's `architecture.md` (freecache →
-  modular note) and `conventions.md` (Modular Cache Backend section).
+- **Deployment tooling** — automation that renders service config should
+  template the same flags/env vars per host or workload, and provision the
+  chosen backend (e.g. an Aerospike namespace) alongside the services.

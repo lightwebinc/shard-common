@@ -4,14 +4,15 @@
 // # Two-tier design
 //
 // Tier 1 is an in-process fixed-capacity set keyed by TxID. A hit short-circuits
-// before Redis is touched. The set is goroutine-safe and uses a ring buffer
-// plus map for O(1) inserts and FIFO eviction. Memory usage is bounded by the
-// configured capacity (~48 B/entry).
+// before the tier-2 backend is touched. The set is goroutine-safe and uses a
+// ring buffer plus map for O(1) inserts and FIFO eviction. Memory usage is
+// bounded by the configured capacity (~48 B/entry).
 //
-// Tier 2 is an optional Redis SET NX EX claim. When Redis is configured, a
-// tier-1 miss falls through to Redis. The winner of the SETNX race proceeds;
-// losers are suppressed. Redis errors fail open: the caller proceeds and an
-// error is reported via the returned err.
+// Tier 2 is an optional atomic SetNX claim against a pluggable [cache.Backend]
+// (memory, redis, aerospike — see docs/cache-backend.md). When a backend is
+// configured, a tier-1 miss falls through to it. The winner of the SetNX race
+// proceeds; losers are suppressed. Backend errors fail open: the caller
+// proceeds and an error is reported via the returned err.
 //
 // # Two operations
 //
@@ -26,9 +27,10 @@
 //
 // # Local-only fallback
 //
-// New("", ...) constructs a tier-1-only Store: Claim performs only the local
-// set test, and Mark is a no-op against the local set. This is the single-
-// server / Redis-down topology described in the design.
+// New with a [Config] that sets neither Backend nor RedisAddr constructs a
+// tier-1-only Store: Claim performs only the local set test, and Mark is a
+// no-op against the local set. This is the single-server / backend-down
+// topology described in the design.
 package txidset
 
 import (
@@ -117,14 +119,16 @@ type markJob struct {
 	ttl    time.Duration
 }
 
-// New constructs a Store. When cfg.RedisAddr is empty, the Store operates
-// in tier-1-only mode: Claim performs only the local-set test and Mark is
-// a no-op (Recorder still receives MarkDropped events for visibility).
+// New constructs a Store. Tier 2 is cfg.Backend when set (the caller owns its
+// lifecycle). When Backend is nil and cfg.RedisAddr is set (deprecated
+// convenience), New builds and owns an internal redis backend; on dial/ping
+// failure it returns the error rather than silently degrading — callers that
+// want fail-open boot behaviour can log-and-continue with a tier-1-only
+// Config.
 //
-// When cfg.RedisAddr is set, New attempts a Ping with a short retry window
-// to tolerate co-started Redis containers. On Ping failure it returns the
-// error rather than silently degrading; callers that want fail-open boot
-// behaviour can choose to log-and-continue using New("", ...).
+// With neither Backend nor RedisAddr set, the Store operates in tier-1-only
+// mode: Claim performs only the local-set test and Mark is a no-op (Recorder
+// still receives MarkDropped events for visibility).
 func New(cfg Config) (*Store, error) {
 	if cfg.TTL <= 0 {
 		return nil, fmt.Errorf("txidset: TTL must be > 0 (got %s)", cfg.TTL)
@@ -185,14 +189,14 @@ func New(cfg Config) (*Store, error) {
 // Semantics:
 //
 //   - (true, nil)  — caller is the first to claim; proceed (forward / multicast).
-//   - (false, nil) — another claimant already holds the key (local or Redis);
+//   - (false, nil) — another claimant already holds the key (local or backend);
 //     suppress.
-//   - (true, err)  — Redis call failed; fail-open. Caller should proceed and
+//   - (true, err)  — backend call failed; fail-open. Caller should proceed and
 //     log/count the error. Local set is still updated so subsequent same-process
 //     calls dedup correctly.
 //
 // The local set is updated on every code path so this Store also acts as a
-// pure in-process LRU when Redis is unavailable.
+// pure in-process LRU when the backend is unavailable.
 func (s *Store) Claim(prefix string, txid [32]byte) (bool, error) {
 	if s.local.SeenAndAdd(txid) {
 		if s.rec != nil {

@@ -170,7 +170,7 @@ or genericize it:
   requested/actual (the kernel silently clamps to `net.core.rmem_max`).
 - `netjoin.Join` failure, especially `ENOBUFS` from exceeding `mld_max_msf`
   source filters (SSM) → Error with `group`, source count, `errno`. This is the
-  exact failure mode `conventions.md`/the SSM design warns about; today it is a
+  exact failure mode the SSM design warns about; today it is a
   generic `auto-join AddGroup failed`.
 
 These are cheap (error paths, not the success hot path) and turn opaque drops
@@ -376,14 +376,14 @@ lines**, and the collector compresses what remains on the wire.
 
 | Phase | Deliverable | Repos | Status |
 |-------|-------------|-------|--------|
-| 0 | This design doc | `bsv-multicast` | **this PR** |
-| 1 | `shard-common/logging` (+ `hostinfo`) package; add gopsutil dep | `shard-common` | next |
-| 2 | Wire all 5 binaries to it; add `-log-format`/`LOG_FORMAT` + `-log-level`/`LOG_LEVEL` (LevelVar) config; collapse boot lines into one `startup.config`; convert `subtx-generator` off plain `log` | all services | next |
-| 3 | One-shot `host.inventory` event at startup (gopsutil + ethtool ioctls + sysctls) | all services | next |
-| 4 | Category-8 in-process OS/NIC syscall logs at proxy/listener | `shard-proxy`, `shard-listener` | next |
-| 5 | Runtime level control (SIGHUP + admin endpoint) | all services | next |
-| 6 | `shard-common/tracing` (opt-in OTLP traces, no-op when off); spans on control-plane flows only | `shard-common` + all services | next |
-| 7 | Slim `<prefix>_host_info` gauge mirror in each component | all services | next |
+| 0 | This design doc | `shard-common` | done |
+| 1 | `shard-common/logging` (+ `hostinfo`) package; add gopsutil dep | `shard-common` | done (v0.13.4) |
+| 2 | Wire all 5 binaries to it; add `-log-format`/`LOG_FORMAT` + `-log-level`/`LOG_LEVEL` (LevelVar) config; collapse boot lines into one `startup.config`; convert `subtx-generator` off plain `log` | all services | done (v0.13.4) |
+| 3 | One-shot `host.inventory` event at startup (gopsutil + ethtool ioctls + sysctls) | all services | done (v0.13.4) |
+| 4 | Category-8 in-process OS/NIC syscall logs at proxy/listener | `shard-proxy`, `shard-listener` | done (v0.13.4) |
+| 5 | Runtime level control (SIGHUP + admin endpoint) | all services | done (v0.13.4) |
+| 6 | `shard-common/tracing` (opt-in OTLP traces, no-op when off); spans on control-plane flows only | `shard-common` + all services | done (v0.13.4) |
+| 7 | Slim `<prefix>_host_info` gauge mirror in each component | all services | done (v0.13.4) |
 | — | **Collector rollout (Grafana Alloy → Loki) + node_exporter** | infra repos | **deferred — separate plan, architecture decided above** |
 
 ## Config surface (Phases 2 & 4)
@@ -402,7 +402,7 @@ existing units; emits a category-3 warning when used. Tracing reuses the existin
 
 ## Cross-repo documentation checklist
 
-When Phases 1–4 ship, update:
+Shipped alongside Phases 1–4 (kept for reference):
 
 - **shard-common**: `README.md` Packages table + `docs/` entry for the new
   `logging` (+ `hostinfo`) package (the identity/format/level contract and the
@@ -416,11 +416,12 @@ When Phases 1–4 ship, update:
 - **Infra repos**: `config.env.j2` gains `LOG_FORMAT`/`LOG_LEVEL`. (Collector +
   node_exporter roles are the deferred rollout phase, not here.)
 
-## Open questions
+## Open questions (resolutions)
 
-1. **Collector**: Grafana Alloy vs. upstream OpenTelemetry Collector — both
-   Apache-2.0, both OTLP→Loki capable; decide at rollout (lead: Alloy, for stack
-   affinity). The backend itself is **decided** (OTLP → Loki); see
+1. **Collector**: **decided — Grafana Alloy** (Apache-2.0, OTLP→Loki; chosen
+   over the upstream OpenTelemetry Collector for stack affinity). The backend
+   is likewise **decided** (OTLP → Loki); only the rollout remains the
+   deferred infra phase. See
    [Recommended transport](#recommended-transport-architecture-decided).
 2. **Cross-process trace context propagation** — NACK/ACK frames carry no spare
    bytes for a W3C `traceparent` today, so initial linkage is via logged
