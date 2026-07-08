@@ -78,6 +78,13 @@ var (
 	// ErrObjectTooLarge reports an object exceeding the reader's configured
 	// maximum. It bounds memory against absurd or hostile length fields.
 	ErrObjectTooLarge = errors.New("objfmt: object exceeds maximum size")
+
+	// ErrNotStrippable reports a well-formed multicast frame that carries no
+	// full push object to strip for delivery — e.g. a BRC-131 block-control
+	// frame that is a lossy native BlockAnnounce (or a coinbase) rather than a
+	// verbatim BRC-144 body. The caller counts it as a non-deliverable class
+	// drop, not corruption.
+	ErrNotStrippable = errors.New("objfmt: frame carries no full push object")
 )
 
 // Size returns the total byte length of the first object of class c at the
