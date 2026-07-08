@@ -15,9 +15,9 @@
 //   - ClassSubtree — BRC-143 subtree push frame; delimited by NodeCount.
 //   - ClassBlock — BRC-144 block push frame; delimited by its counts.
 //
-// v1 registers ClassTx only; ClassSubtree and ClassBlock return
-// [ErrClassNotRegistered] until their codecs land (the lane/dispatch seam is
-// deliberately in place first).
+// All three classes are registered: ClassTx wraps to BRC-124/128, ClassSubtree
+// to BRC-132, and ClassBlock to the fabric block frame (the BRC-144 body
+// carried verbatim) — see [MulticastBytes].
 //
 // # Directions
 //
@@ -90,6 +90,10 @@ func Size(c Class, buf []byte) (int, error) {
 	switch c {
 	case ClassTx:
 		return TxSize(buf)
+	case ClassSubtree:
+		return SubtreeSize(buf)
+	case ClassBlock:
+		return BlockSize(buf)
 	default:
 		return 0, ErrClassNotRegistered
 	}
