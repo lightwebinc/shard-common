@@ -35,6 +35,8 @@ func StripBytes(c Class, mcast []byte) ([]byte, error) {
 		return subtreeStrip(mcast)
 	case ClassBlock:
 		return blockStrip(mcast)
+	case ClassBEEF:
+		return beefStrip(mcast)
 	default:
 		return nil, ErrClassNotRegistered
 	}

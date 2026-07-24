@@ -45,6 +45,10 @@ const (
 	ClassSubtree
 	// ClassBlock is a BRC-144 block push frame. Not registered in v1.
 	ClassBlock
+	// ClassBEEF is a BRC-148 BEEF submission record (not a bare BEEF object —
+	// BEEF bytes are not length-walkable, so the lane carries the explicit
+	// length-carrying record; see beef.go).
+	ClassBEEF
 )
 
 // String returns the lane name for logs and metrics labels.
@@ -56,6 +60,8 @@ func (c Class) String() string {
 		return "subtree"
 	case ClassBlock:
 		return "block"
+	case ClassBEEF:
+		return "beef"
 	default:
 		return "unknown"
 	}
@@ -101,6 +107,8 @@ func Size(c Class, buf []byte) (int, error) {
 		return SubtreeSize(buf)
 	case ClassBlock:
 		return BlockSize(buf)
+	case ClassBEEF:
+		return BEEFRecordSize(buf)
 	default:
 		return 0, ErrClassNotRegistered
 	}

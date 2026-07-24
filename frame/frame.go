@@ -159,6 +159,14 @@ const (
 	// versions, so single-transaction callers can distinguish it.
 	FrameVerV8 byte = 0x08
 
+	// FrameVerV9 is the BRC-148 BEEF object frame version (92-byte header,
+	// layout-identical to BRC-124). ContentID (SHA-256d of the payload)
+	// occupies the TxID slot and TopicID (SHA-256 of the overlay topic name)
+	// occupies the SubtreeID slot. Carried on the BEEF object plane's
+	// domain-tagged shard groups (IDX 0x1000 + shardIndex(TopicID)). Decode it
+	// with [DecodeBEEF].
+	FrameVerV9 byte = 0x09
+
 	// BlockMsgAnnounce identifies a BlockAnnounce payload in a FrameVerV4 frame.
 	// The payload carries the 80-byte block header, coinbase TxID, and subtree hashes.
 	BlockMsgAnnounce byte = 0x01
@@ -344,6 +352,11 @@ func Decode(buf []byte) (*Frame, error) {
 		// are decoded separately; Decode returns an error so callers that only
 		// handle a single-tx Frame can distinguish them. Use the bundle package.
 		return nil, fmt.Errorf("%w: FrameVer 0x08 is a BRC-142 bundle frame; use bundle.Decode", ErrBadVer)
+	case FrameVerV9:
+		// BRC-148 BEEF object frames are decoded separately; Decode returns an
+		// error so callers that only handle Frame can distinguish them.
+		// Use [DecodeBEEF] to obtain a [BEEFFrame].
+		return nil, fmt.Errorf("%w: FrameVer 0x09 is a BRC-148 BEEF object frame; use DecodeBEEF", ErrBadVer)
 	default:
 		return nil, fmt.Errorf("%w: got 0x%02X", ErrBadVer, fver)
 	}

@@ -40,6 +40,11 @@ type Entry struct {
 	Groups    []uint16     // expanded from list or bitmap form
 	Successor *frame.SuccessorBlock
 
+	// Domains carries the announcer's BRC-148 per-plane descriptors
+	// (already validated by the frame decoder). Nil when the manifest has
+	// no Domains section.
+	Domains []frame.DomainDescriptor
+
 	receivedAt time.Time
 	expiresAt  time.Time
 }
@@ -139,6 +144,7 @@ func (r *Registry) Upsert(src netip.Addr, m *frame.ShardManifest) *Entry {
 		Sources:          dedupSources(m.Sources),
 		Groups:           expandGroups(m),
 		Successor:        m.Successor,
+		Domains:          m.Domains,
 		receivedAt:       now,
 		expiresAt:        now.Add(ttl),
 	}

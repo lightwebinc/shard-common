@@ -47,6 +47,13 @@ const (
 	// sources payload. Requires Authoritative=1; consumers MUST reject
 	// manifests with SuccessorValid=1 && Authoritative=0 as malformed.
 	ShardManifestFlagSuccessorValid byte = 1 << 6
+
+	// ShardManifestFlagDomainsValid indicates the datagram carries a BRC-148
+	// Domains descriptor section appended after the groups, sources, and
+	// top-level Successor payloads. This is the final unallocated BRC-139 flag
+	// bit; all subsequent per-domain extensions ride the descriptor's own
+	// Version field instead of new top-level flags.
+	ShardManifestFlagDomainsValid byte = 1 << 7
 )
 
 // SuccessorBlockSize is the fixed size of the BRC-139 Successor block.
@@ -86,10 +93,69 @@ const (
 	RoleHintRetryEndpoint byte = 3
 	RoleHintProducer      byte = 4
 	RoleHintManifestOnly  byte = 5
+	// RoleHintProducerBEEF hints the announcer publishes BEEF-plane objects
+	// (BRC-148). Informational only — never a routing/filtering input.
+	RoleHintProducerBEEF byte = 6
+	// RoleHintListenerBEEF hints the announcer subscribes to BEEF-plane
+	// groups (BRC-148). Informational only.
+	RoleHintListenerBEEF byte = 7
 )
 
 // MaxShardBits is the maximum permitted ShardBits value (per BRC-129).
 const MaxShardBits = 12
+
+// BRC-148 Domains section constants.
+const (
+	// DomainDescriptorSize is a Domain Descriptor's fixed 24-byte core; a
+	// descriptor with DomainFlagSuccessorValid is followed by a further
+	// [SuccessorBlockSize] bytes.
+	DomainDescriptorSize = 24
+
+	// MaxDomainDescriptors bounds DomainCount (domains 0x00–0x0E).
+	MaxDomainDescriptors = 15
+
+	// MaxDomainID is the highest legal Domain Descriptor DomainID; 0x0F is
+	// forbidden (its slot overlaps the BRC-129 control plane).
+	MaxDomainID = 0x0E
+
+	// MaxPlaneShardBits caps a non-zero domain's ShardBits (wide planes,
+	// BRC-148); domain 0x00 retains the BRC-129 cap [MaxShardBits].
+	MaxPlaneShardBits = 15
+
+	// domainControlBase is the first control-plane index; every plane's
+	// address range must satisfy planeBase + 2^ShardBits ≤ this bound.
+	domainControlBase = 0xF800
+)
+
+// DomainDescriptor flag bits ([DomainDescriptor.Flags]).
+const (
+	// DomainFlagSourceModeSSM declares this plane's data plane uses SSM
+	// (FF3x addressing).
+	DomainFlagSourceModeSSM byte = 1 << 0
+	// DomainFlagSuccessorValid indicates a 24-byte Successor block follows
+	// this descriptor's core.
+	DomainFlagSuccessorValid byte = 1 << 1
+	// DomainFlagActive marks the announcer as publishing and/or serving this
+	// plane (the authoritative per-domain participation signal).
+	DomainFlagActive byte = 1 << 2
+)
+
+// DomainDescriptor is one BRC-148 per-plane entry in a manifest's Domains
+// section: the plane's shard-bit width, slot reservation, mode flags, and
+// generation — the per-domain analogue of the manifest's top-level
+// ShardBits/GenerationID/Successor.
+type DomainDescriptor struct {
+	DomainID     uint8    // plane selector, 0x00–0x0E
+	ShardBits    uint8    // this plane's width (domain 0: ≤ 12; others: ≤ 15)
+	SlotSpan     uint8    // contiguous 0x1000 slots reserved; ≥ ceil(2^ShardBits/4096)
+	Flags        byte     // DomainFlag* bits
+	Version      uint8    // descriptor format version; 0x00 in this revision
+	GenerationID [16]byte // this plane's 128-bit generation id
+	// Successor is non-nil iff Flags has [DomainFlagSuccessorValid]: an
+	// in-flight generation transition for this plane, layout per the BRC-139
+	// Successor block.
+	Successor *SuccessorBlock
+}
 
 // crc32cTable is the Castagnoli CRC32 table used for ShardManifest.ManifestCRC.
 var crc32cTable = crc32.MakeTable(crc32.Castagnoli)
@@ -131,6 +197,14 @@ var (
 	// not Authoritative, or the successor's ShardBits differs from the
 	// announcer's by more than ±1.
 	ErrShardManifestBadSuccessor = errors.New("shard_manifest: invalid successor block")
+
+	// ErrShardManifestBadDomains is returned when the BRC-148 Domains section
+	// fails validation: DomainsValid/section coherence, DomainCount out of
+	// range, duplicate or forbidden DomainIDs, a plane range reaching the
+	// control plane, SlotSpan below the implied span or overlapping another
+	// descriptor's reservation, a domain-0 descriptor disagreeing with the
+	// top-level fields, or an invalid per-domain successor.
+	ErrShardManifestBadDomains = errors.New("shard_manifest: invalid domains section")
 )
 
 // ShardManifest is the in-memory representation of a BRC-139 ShardManifest
@@ -172,6 +246,13 @@ type ShardManifest struct {
 	// set in Flags. Decode rejects datagrams that violate the coherence or
 	// ±1 ShardBits-shift rules.
 	Successor *SuccessorBlock
+
+	// Domains is the BRC-148 per-plane descriptor section, appended after
+	// the groups, sources, and top-level Successor payloads. Non-empty iff
+	// [ShardManifestFlagDomainsValid] is set in Flags. The top-level
+	// ShardBits/GenerationID/Successor remain authoritative for domain 0x00;
+	// a domain-0 descriptor MAY appear but MUST agree with them.
+	Domains []DomainDescriptor
 }
 
 // ShardManifestSize returns the total wire size of m, including header,
@@ -189,7 +270,92 @@ func ShardManifestSize(m *ShardManifest) int {
 	if m.Flags&ShardManifestFlagSuccessorValid != 0 {
 		size += SuccessorBlockSize
 	}
+	if m.Flags&ShardManifestFlagDomainsValid != 0 {
+		size += 1 // DomainCount
+		for i := range m.Domains {
+			size += DomainDescriptorSize
+			if m.Domains[i].Flags&DomainFlagSuccessorValid != 0 {
+				size += SuccessorBlockSize
+			}
+		}
+	}
 	return size
+}
+
+// validateDomains enforces the BRC-148 Domains-section rules shared by
+// encode and decode. topShardBits/topGeneration/authoritative come from the
+// enclosing manifest.
+func validateDomains(domains []DomainDescriptor, topShardBits uint8, topGeneration [16]byte, authoritative bool) error {
+	if len(domains) == 0 || len(domains) > MaxDomainDescriptors {
+		return fmt.Errorf("%w: descriptor count %d outside [1, %d]", ErrShardManifestBadDomains, len(domains), MaxDomainDescriptors)
+	}
+	var seen [MaxDomainID + 1]bool
+	var slots [MaxDomainID + 1]uint8 // slot index → owning descriptor count
+	for i := range domains {
+		d := &domains[i]
+		if d.DomainID > MaxDomainID {
+			return fmt.Errorf("%w: DomainID 0x%X (0x0F forbidden)", ErrShardManifestBadDomains, d.DomainID)
+		}
+		if seen[d.DomainID] {
+			return fmt.Errorf("%w: duplicate DomainID 0x%X", ErrShardManifestBadDomains, d.DomainID)
+		}
+		seen[d.DomainID] = true
+
+		maxBits := uint8(MaxPlaneShardBits)
+		if d.DomainID == 0 {
+			maxBits = MaxShardBits
+		}
+		if d.ShardBits > maxBits {
+			return fmt.Errorf("%w: domain 0x%X ShardBits %d exceeds %d", ErrShardManifestBadDomains, d.DomainID, d.ShardBits, maxBits)
+		}
+		if end := uint32(d.DomainID)<<12 + uint32(1)<<d.ShardBits; end > domainControlBase {
+			return fmt.Errorf("%w: domain 0x%X range reaches control plane", ErrShardManifestBadDomains, d.DomainID)
+		}
+
+		implied := uint8(1)
+		if d.ShardBits > 12 {
+			implied = 1 << (d.ShardBits - 12)
+		}
+		if d.SlotSpan < implied {
+			return fmt.Errorf("%w: domain 0x%X SlotSpan %d below implied %d", ErrShardManifestBadDomains, d.DomainID, d.SlotSpan, implied)
+		}
+		if int(d.DomainID)+int(d.SlotSpan) > MaxDomainID+1 {
+			return fmt.Errorf("%w: domain 0x%X SlotSpan %d intrudes on slot 0xF", ErrShardManifestBadDomains, d.DomainID, d.SlotSpan)
+		}
+		for s := int(d.DomainID); s < int(d.DomainID)+int(d.SlotSpan); s++ {
+			slots[s]++
+			if slots[s] > 1 {
+				return fmt.Errorf("%w: slot 0x%X reserved by more than one descriptor", ErrShardManifestBadDomains, s)
+			}
+		}
+
+		if d.DomainID == 0 {
+			if d.ShardBits != topShardBits || d.GenerationID != topGeneration {
+				return fmt.Errorf("%w: domain-0 descriptor disagrees with top-level fields", ErrShardManifestBadDomains)
+			}
+		}
+
+		hasSucc := d.Successor != nil
+		flagSucc := d.Flags&DomainFlagSuccessorValid != 0
+		if hasSucc != flagSucc {
+			return fmt.Errorf("%w: domain 0x%X successor/flag mismatch", ErrShardManifestBadDomains, d.DomainID)
+		}
+		if hasSucc {
+			if !authoritative {
+				return fmt.Errorf("%w: domain 0x%X successor requires Authoritative=1", ErrShardManifestBadDomains, d.DomainID)
+			}
+			if d.Successor.ShardBits > maxBits {
+				return fmt.Errorf("%w: domain 0x%X successor ShardBits %d exceeds %d", ErrShardManifestBadDomains, d.DomainID, d.Successor.ShardBits, maxBits)
+			}
+			if !withinOneBit(d.ShardBits, d.Successor.ShardBits) {
+				return fmt.Errorf("%w: domain 0x%X |successor-active| ShardBits > 1", ErrShardManifestBadDomains, d.DomainID)
+			}
+			if end := uint32(d.DomainID)<<12 + uint32(1)<<d.Successor.ShardBits; end > domainControlBase {
+				return fmt.Errorf("%w: domain 0x%X successor range reaches control plane", ErrShardManifestBadDomains, d.DomainID)
+			}
+		}
+	}
+	return nil
 }
 
 // EncodeShardManifest serialises m into buf. It returns the number of bytes
@@ -263,6 +429,21 @@ func EncodeShardManifest(m *ShardManifest, buf []byte) (int, error) {
 		}
 	}
 
+	domainsValid := m.Flags&ShardManifestFlagDomainsValid != 0
+	hasDomains := len(m.Domains) > 0
+	if domainsValid && !hasDomains {
+		return 0, fmt.Errorf("%w: DomainsValid=1 but no descriptors", ErrShardManifestBadDomains)
+	}
+	if !domainsValid && hasDomains {
+		return 0, fmt.Errorf("%w: descriptors present but DomainsValid=0", ErrShardManifestBadDomains)
+	}
+	if domainsValid {
+		if err := validateDomains(m.Domains, m.ShardBits, m.GenerationID,
+			m.Flags&ShardManifestFlagAuthoritative != 0); err != nil {
+			return 0, err
+		}
+	}
+
 	total := ShardManifestSize(m)
 	if len(buf) < total {
 		return 0, fmt.Errorf("shard_manifest: buffer too small (%d bytes, need %d)", len(buf), total)
@@ -320,9 +501,36 @@ func EncodeShardManifest(m *ShardManifest, buf []byte) (int, error) {
 		buf[off+18] = 0 // Reserved
 		buf[off+19] = 0
 		binary.BigEndian.PutUint32(buf[off+20:off+24], m.Successor.TransitionEpoch)
-		// off is no longer used after this point but reserved for future
-		// payload sections; leave the increment elided to satisfy ineffassign.
+		off += SuccessorBlockSize
 	}
+
+	if domainsValid {
+		buf[off] = byte(len(m.Domains))
+		off++
+		for i := range m.Domains {
+			d := &m.Domains[i]
+			buf[off] = d.DomainID
+			buf[off+1] = d.ShardBits
+			buf[off+2] = d.SlotSpan
+			buf[off+3] = d.Flags
+			buf[off+4] = d.Version
+			buf[off+5] = 0 // Reserved: zero on send, ignored on receive
+			buf[off+6] = 0
+			buf[off+7] = 0
+			copy(buf[off+8:off+24], d.GenerationID[:])
+			off += DomainDescriptorSize
+			if d.Successor != nil {
+				copy(buf[off:off+16], d.Successor.GenerationID[:])
+				buf[off+16] = d.Successor.ShardBits
+				buf[off+17] = d.Successor.Flags
+				buf[off+18] = 0
+				buf[off+19] = 0
+				binary.BigEndian.PutUint32(buf[off+20:off+24], d.Successor.TransitionEpoch)
+				off += SuccessorBlockSize
+			}
+		}
+	}
+	_ = off // future payload sections append here
 
 	crc := crc32.Checksum(buf[:total], crc32cTable)
 	binary.BigEndian.PutUint32(buf[44:48], crc)
@@ -407,6 +615,35 @@ func DecodeShardManifest(buf []byte) (*ShardManifest, error) {
 		return nil, ErrShardManifestTruncated
 	}
 
+	// The Domains section's length is data-dependent (per-descriptor
+	// successor flags), so pre-scan it to establish the datagram extent
+	// before CRC verification.
+	domainsValid := m.Flags&ShardManifestFlagDomainsValid != 0
+	if domainsValid {
+		if len(buf) < total+1 {
+			return nil, ErrShardManifestTruncated
+		}
+		count := int(buf[total])
+		if count < 1 || count > MaxDomainDescriptors {
+			return nil, fmt.Errorf("%w: descriptor count %d outside [1, %d]",
+				ErrShardManifestBadDomains, count, MaxDomainDescriptors)
+		}
+		scan := total + 1
+		for i := 0; i < count; i++ {
+			if len(buf) < scan+DomainDescriptorSize {
+				return nil, ErrShardManifestTruncated
+			}
+			scan += DomainDescriptorSize
+			if buf[scan-DomainDescriptorSize+3]&DomainFlagSuccessorValid != 0 {
+				scan += SuccessorBlockSize
+			}
+		}
+		if len(buf) < scan {
+			return nil, ErrShardManifestTruncated
+		}
+		total = scan
+	}
+
 	// Verify CRC (zero the field locally).
 	wantCRC := binary.BigEndian.Uint32(buf[44:48])
 	tmp := make([]byte, total)
@@ -466,10 +703,43 @@ func DecodeShardManifest(buf []byte) (*ShardManifest, error) {
 				ErrShardManifestBadSuccessor, s.ShardBits, m.ShardBits)
 		}
 		m.Successor = s
-		// off is no longer used after the successor block — kept for
-		// future payload-section extensions; do not increment to avoid
-		// ineffassign.
+		off += SuccessorBlockSize
 	}
+
+	if domainsValid {
+		count := int(buf[off])
+		off++
+		domains := make([]DomainDescriptor, 0, count)
+		for i := 0; i < count; i++ {
+			d := DomainDescriptor{
+				DomainID:  buf[off],
+				ShardBits: buf[off+1],
+				SlotSpan:  buf[off+2],
+				Flags:     buf[off+3],
+				Version:   buf[off+4],
+				// Reserved bytes [5:8] ignored on receive.
+			}
+			copy(d.GenerationID[:], buf[off+8:off+24])
+			off += DomainDescriptorSize
+			if d.Flags&DomainFlagSuccessorValid != 0 {
+				s := &SuccessorBlock{
+					ShardBits:       buf[off+16],
+					Flags:           buf[off+17],
+					TransitionEpoch: binary.BigEndian.Uint32(buf[off+20 : off+24]),
+				}
+				copy(s.GenerationID[:], buf[off:off+16])
+				d.Successor = s
+				off += SuccessorBlockSize
+			}
+			domains = append(domains, d)
+		}
+		if err := validateDomains(domains, m.ShardBits, m.GenerationID,
+			m.Flags&ShardManifestFlagAuthoritative != 0); err != nil {
+			return nil, err
+		}
+		m.Domains = domains
+	}
+	_ = off // future payload sections parse from here
 
 	return m, nil
 }

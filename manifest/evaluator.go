@@ -48,6 +48,12 @@ type Adopted struct {
 	// currently disagree (more than one candidate value seen). Used for
 	// the divergence counter.
 	DivergenceFields []string
+
+	// Domains is the per-plane adopted view (BRC-148), keyed by DomainID.
+	// Domain 0x0 never appears here — it stays governed by the top-level
+	// ShardBits/SourceModeSSM/Successor fields. Nil when no plane
+	// descriptors, pins, or previously-adopted planes exist.
+	Domains map[uint8]DomainAdoption
 }
 
 // SuccessorView is the consumer-side projection of a BRC-139 Successor
@@ -74,6 +80,12 @@ type Pin struct {
 	HasShardBitsPin  bool
 	SourceModeSSM    bool // meaningful only when HasSourceModePin
 	HasSourceModePin bool
+
+	// DomainShardBits pins a plane's shard-bit width per DomainID
+	// (BRC-148). A pinned domain never adopts from descriptors; announcer
+	// disagreement is still surfaced as divergence. Domain 0x0 entries are
+	// ignored (pin it via ShardBits/HasShardBitsPin).
+	DomainShardBits map[uint8]uint8
 }
 
 // EvaluatorConfig configures adoption gating.
@@ -285,6 +297,8 @@ func (e *Evaluator) Evaluate(snap []*Entry) Adopted {
 			}
 		}
 	}
+
+	e.evaluateDomains(snap, &out, now)
 
 	sort.Strings(out.DivergenceFields)
 	return out
