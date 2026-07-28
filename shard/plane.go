@@ -59,15 +59,22 @@ func SlotSpan(shardBits uint) uint8 {
 }
 
 // ValidatePlane checks the BRC-148 constraints for a (domain, shardBits)
-// pair: domain ≤ 0x0E; shardBits in [1, 15]; the plane's reserved range must
+// pair: domain ≤ 0x0E; shardBits in [0, 15]; the plane's reserved range must
 // not reach the control plane (planeBase + 2^shardBits ≤ 0xF800); and domain
 // 0x0 retains the BRC-129 cap shardBits ≤ 12.
+//
+// shardBits = 0 is the degenerate single-group plane: the derivation shifts
+// the key by 32 and masks with 0, so every key maps to planeBase itself. This
+// is the low-membership posture — one group per plane, every delivery edge
+// joining it and filtering locally — which trades fabric selectivity for
+// minimal group-membership and MFC state. It is the initial BEEF-plane
+// setting; widening later only splits groups (see the doc on generations).
 func ValidatePlane(domain uint8, shardBits uint) error {
 	if domain > DomainMax {
 		return fmt.Errorf("%w: domain 0x%X (0xF overlaps the control plane)", ErrBadPlane, domain)
 	}
-	if shardBits < 1 || shardBits > 15 {
-		return fmt.Errorf("%w: shardBits %d outside [1, 15]", ErrBadPlane, shardBits)
+	if shardBits > 15 {
+		return fmt.Errorf("%w: shardBits %d outside [0, 15]", ErrBadPlane, shardBits)
 	}
 	if domain == DomainTx && shardBits > 12 {
 		return fmt.Errorf("%w: domain 0x0 caps shardBits at 12 (BRC-129)", ErrBadPlane)

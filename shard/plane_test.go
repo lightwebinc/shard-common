@@ -136,3 +136,22 @@ func TestPlaneEngineAddrAndGroups(t *testing.T) {
 		t.Fatalf("Addr bytes wrong: %v", ip)
 	}
 }
+
+// TestPlaneZeroBits covers the degenerate single-group plane (shardBits = 0),
+// the initial BEEF-plane posture: every key lands on planeBase itself.
+func TestPlaneZeroBits(t *testing.T) {
+	if err := ValidatePlane(DomainBEEF, 0); err != nil {
+		t.Fatalf("ValidatePlane(BEEF, 0): %v", err)
+	}
+	pe, err := NewPlane(0xFF35, 11, 0, DomainBEEF)
+	if err != nil {
+		t.Fatalf("NewPlane bits=0: %v", err)
+	}
+	base := PlaneBase(DomainBEEF)
+	for _, k := range [][32]byte{{0x00}, {0xFF, 0xFF, 0xFF, 0xFF}, {0x5A, 0xC3, 0x11}} {
+		key := k
+		if got := pe.GroupIndex(&key); got != uint32(base) {
+			t.Fatalf("bits=0 key %x: group %#x, want planeBase %#x", key[:4], got, base)
+		}
+	}
+}
