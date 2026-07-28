@@ -65,7 +65,7 @@ func TestValidatePlane(t *testing.T) {
 		{"tx bits 12", DomainTx, 12, true},
 		{"tx bits 13 violates BRC-129 cap", DomainTx, 13, false},
 		{"domain 0xF forbidden", 0x0F, 4, false},
-		{"bits 0 rejected", DomainBEEF, 0, false},
+		{"bits 0 is the single-group plane", DomainBEEF, 0, true},
 		{"bits 16 rejected", DomainBEEF, 16, false},
 		{"top domain single slot ok", 0x0E, 12, true},        // 0xE000+0x1000=0xF000 ≤ 0xF800
 		{"top domain wide reaches control", 0x0E, 13, false}, // 0xE000+0x2000 > 0xF800
