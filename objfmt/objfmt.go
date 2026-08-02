@@ -15,9 +15,10 @@
 //   - ClassSubtree — BRC-143 subtree push frame; delimited by NodeCount.
 //   - ClassBlock — BRC-144 block push frame; delimited by its counts.
 //
-// All three classes are registered: ClassTx wraps to BRC-124/128, ClassSubtree
+// All four classes are registered: ClassTx wraps to BRC-124/128, ClassSubtree
 // to BRC-132, and ClassBlock to the fabric block frame (the BRC-144 body
-// carried verbatim) — see [MulticastBytes].
+// carried verbatim) — see [MulticastBytes]. ClassBEEF is admitted via the
+// proxy's SubmitBEEF submission-record expansion, not [MulticastBytes].
 //
 // # Directions
 //
@@ -41,9 +42,9 @@ type Class uint8
 const (
 	// ClassTx is a BSV transaction: BRC-12 (raw) or BRC-30 (EF).
 	ClassTx Class = iota + 1
-	// ClassSubtree is a BRC-143 subtree push frame. Not registered in v1.
+	// ClassSubtree is a BRC-143 subtree push frame.
 	ClassSubtree
-	// ClassBlock is a BRC-144 block push frame. Not registered in v1.
+	// ClassBlock is a BRC-144 block push frame.
 	ClassBlock
 	// ClassBEEF is a BRC-148 BEEF submission record (not a bare BEEF object —
 	// BEEF bytes are not length-walkable, so the lane carries the explicit
@@ -77,8 +78,8 @@ var (
 	// class regardless of any suffix.
 	ErrMalformed = errors.New("objfmt: malformed object")
 
-	// ErrClassNotRegistered reports a class whose codec has not landed yet
-	// (ClassSubtree and ClassBlock in v1).
+	// ErrClassNotRegistered reports a class value with no registered codec
+	// (any value outside ClassTx/ClassSubtree/ClassBlock/ClassBEEF).
 	ErrClassNotRegistered = errors.New("objfmt: class not registered")
 
 	// ErrObjectTooLarge reports an object exceeding the reader's configured

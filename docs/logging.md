@@ -378,7 +378,7 @@ lines**, and the collector compresses what remains on the wire.
 |-------|-------------|-------|--------|
 | 0 | This design doc | `shard-common` | done |
 | 1 | `shard-common/logging` (+ `hostinfo`) package; add gopsutil dep | `shard-common` | done (v0.13.4) |
-| 2 | Wire all 5 binaries to it; add `-log-format`/`LOG_FORMAT` + `-log-level`/`LOG_LEVEL` (LevelVar) config; collapse boot lines into one `startup.config`; convert `subtx-generator` off plain `log` | all services | done (v0.13.4) |
+| 2 | Wire all binaries to it; add `-log-format`/`LOG_FORMAT` + `-log-level`/`LOG_LEVEL` (LevelVar) config; collapse boot lines into one `startup.config`; convert `subtx-generator` off plain `log` | all services | done (v0.13.4) |
 | 3 | One-shot `host.inventory` event at startup (gopsutil + ethtool ioctls + sysctls) | all services | done (v0.13.4) |
 | 4 | Category-8 in-process OS/NIC syscall logs at proxy/listener | `shard-proxy`, `shard-listener` | done (v0.13.4) |
 | 5 | Runtime level control (SIGHUP + admin endpoint) | all services | done (v0.13.4) |
@@ -392,7 +392,7 @@ Every flag gets an UPPERCASE env equivalent, in the per-repo `config/` package.
 
 | Flag | Env | Default | Meaning |
 |------|-----|---------|---------|
-| `-log-format` | `LOG_FORMAT` | `text` | `text` \| `json`. `json` is the fleet/aggregation format. |
+| `-log-format` | `LOG_FORMAT` | `text` | `text` \| `json`. `json` is the fleet/aggregation format. Exception: `shard-manifest` defaults to `json`. |
 | `-log-level` | `LOG_LEVEL` | `info` | `debug`\|`info`\|`warn`\|`error`. Supersedes the boolean `-debug` (kept as alias = `debug`). |
 | `-trace-sampling` | `TRACE_SAMPLING` | `0` | Span sampling ratio `0.0`–`1.0`; `0` = tracing off (no-op tracer). Exports via `OTLP_ENDPOINT` when > 0. |
 

@@ -45,12 +45,14 @@
 //	    92     4  OrigPayloadLen Total unfragmented payload size (uint32 BE)
 //	    96     2  FragIndex      0-based fragment index (uint16 BE)
 //	    98     2  FragTotal      Total number of fragments (uint16 BE)
-//	   100     1  OrigFrameVer   Original FrameVer (0x00/0x02=V2, 0x04=V4 block, 0x05=V5 subtree)
+//	   100     1  OrigFrameVer   Original FrameVer (0x00/0x02=V2, 0x04=V4 block, 0x05=V5 subtree, 0x09=V9 BEEF)
 //	   101     3  Reserved2      Must be 0x000000
 //	   104     *  Fragment data
 //
 // Each fragment carries an independent HashKey and SeqNum stamped by the
-// proxy. Listeners reassemble fragments keyed by TxID and verify
+// proxy. Listeners reassemble fragments keyed by TxID — except V9 (BRC-149
+// BEEF) fragments, which key on the (ContentID, TopicID) pair as
+// SHA-256(ContentID ∥ TopicID) — and verify
 // SHA256d(reassembled payload) == TxID after completion (for V2 fragments).
 // For V5 subtree-data fragments, SHA256d is not applicable; optional
 // Merkle-root verification is used instead.
@@ -159,7 +161,7 @@ const (
 	// versions, so single-transaction callers can distinguish it.
 	FrameVerV8 byte = 0x08
 
-	// FrameVerV9 is the BRC-148 BEEF object frame version (92-byte header,
+	// FrameVerV9 is the BRC-149 BEEF object frame version (92-byte header,
 	// layout-identical to BRC-124). ContentID (SHA-256d of the payload)
 	// occupies the TxID slot and TopicID (SHA-256 of the overlay topic name)
 	// occupies the SubtreeID slot. Carried on the BEEF object plane's

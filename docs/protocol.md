@@ -52,8 +52,10 @@ Offset  Size  Field
     44     *  Payload
 ```
 
-**TCP ingress:** the TCP reader reads 44 bytes first to detect the version, then
-completes the header read if BRC-124/BRC-128 (48 more bytes). No separate port is needed
+**TCP ingress:** grammar is detected once per connection from the leading
+bytes (framed magic / `0xBEEF` record / bare transaction — see §7). On a
+framed stream the reader reads 44 bytes to detect the version, then completes
+the header read if BRC-124/BRC-128 (48 more bytes). No separate port is needed
 for BRC-12 and BRC-124/BRC-128 — both formats share the same listener.
 
 ---
@@ -82,6 +84,26 @@ Codec summary (`bundle` package; FrameVer `0x08`, 66-byte big-endian header):
   `Decoalesce` splits a bundle back into individual frames at the delivery
   edge; a `Rebucketer` re-aligns a bundle to the current shard generation
   (`GroupIdx`/`ShardBits`) at the listener.
+
+---
+
+## 3b. BRC-149 BEEF Object Frame
+
+Canonical wire spec: BRC-149 (the `FrameVer 0x09` frame plus the
+submission/delivery records); shard-domain/plane partitioning is BRC-148.
+
+Codec summary (`frame.DecodeBEEF` + `objfmt` records; FrameVer `0x09`,
+92-byte header, layout-identical to BRC-124):
+
+- Header fields: `ContentID` (SHA-256d of the object) at offset 8, `HashKey`
+  at 40, `SeqNum` at 48, `TopicID` (SHA-256 of the topic name) at 56,
+  `PayloadLen` at 88. The BEEF encoding version is the payload's first four
+  bytes, not duplicated in the header.
+- **Submission record** (up; leading `0xBEEF` tag — the third grammar on the
+  tx port): `u16 tag ∥ u8 recordVer ∥ u8 topicCount ∥ topics ∥ u32 objectLen
+  ∥ object`; ingress expands one record into one `0x09` frame per topic.
+- **Delivery record** (down; stripped lanes): 32-byte `TopicID` ∥ `u32` BE
+  object length ∥ object (`objfmt.EncodeBEEFDelivery`).
 
 ---
 
@@ -143,10 +165,14 @@ The proxy processes each incoming datagram in two steps:
 ## 7. TCP Ingress
 
 When `-tcp-listen-port` is non-zero, the proxy also accepts TCP connections for
-reliable frame delivery. The TCP wire format is identical to UDP: BRC-12, BRC-124, or BRC-128
-frames concatenated end-to-end with no additional envelope.
+reliable frame delivery. Grammar is detected **once per connection** from the
+leading bytes: the BSV network magic selects a framed stream; a `0xBEEF`
+record tag selects a BEEF submission-record stream (§3b); anything else is a
+bare transaction stream. On a framed stream the wire format is identical to
+UDP: BRC-12, BRC-124, or BRC-128 frames concatenated end-to-end with no
+additional envelope.
 
-**Read sequence per frame:**
+**Read sequence per frame (framed stream):**
 1. Read 44 bytes (minimum header, sufficient for both BRC-12 and the start of BRC-124/BRC-128).
 2. Inspect `FrameVer` at byte 6.
    - **BRC-12:** header is complete; `PayLen` is at bytes 40–43.
@@ -189,8 +215,9 @@ a `reason` label (e.g. `decode_error`, `write_error`, `truncated`,
 | `FrameVerV6` | `0x06` | BRC-134 chained anchor transaction frames |
 | `FrameVerV7` | `0x07` | BRC-135 block header frames (emitter-originated) |
 | `FrameVerV8` | `0x08` | BRC-142 coalescing bundle frames (66-byte header) |
+| `FrameVerV9` | `0x09` | BRC-149 BEEF object frames (92-byte header) |
 | `HeaderSizeLegacy` | `44` | Legacy BRC-12 header bytes |
-| `HeaderSize` | `92` | BRC-124/128/131/132/134/135 header bytes |
+| `HeaderSize` | `92` | BRC-124/128/131/132/134/135/149 header bytes |
 | `HeaderSizeV3` | `104` | BRC-130 fragment header bytes |
 | `BlockHeaderSize` | `80` | BRC-135 fixed payload size (raw BSV block header) |
 | `BlockHeaderFrameSize` | `172` | BRC-135 total frame size (`HeaderSize + BlockHeaderSize`) |

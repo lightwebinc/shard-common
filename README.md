@@ -16,8 +16,9 @@ by `shard-proxy`, `shard-listener`, `retry-endpoint`, `subtx-generator`, and
 
 | Package    | Purpose                                                                 |
 | ---------- | ----------------------------------------------------------------------- |
-| `frame`    | Wire format codec: BRC-12/124/128 frames, BRC-127 announce, BRC-130 fragments, BRC-131 blocks, BRC-132 subtree data, BRC-134 anchor txs, BRC-135 block headers, BRC-139 shard manifest, BRC-142 bundle detection |
+| `frame`    | Wire format codec: BRC-12/124/128 frames, BRC-127 announce, BRC-130 fragments, BRC-131 blocks, BRC-132 subtree data, BRC-134 anchor txs, BRC-135 block headers, BRC-139 shard manifest, BRC-142 bundle detection, BRC-148/149 BEEF object frames |
 | `bundle`   | BRC-142 coalescing (bundle) frame codec (`Encode`/`Decode`, FrameVer `0x08`, 66-byte header) + `Coalescer` (pack), `Decoalesce` (split), `Rebucketer` (generation re-align). Packs many small txs of one `(group, subtree)` flow into one datagram — the inverse of BRC-130 fragmentation. |
+| `objfmt`   | Push/bare object codecs for single-class lanes: `ClassTx` / `ClassSubtree` (BRC-143) / `ClassBlock` (BRC-144) / `ClassBEEF`; BEEF submission + delivery records (BRC-148/149) and the multicast frame wrap. |
 | `shard`    | TxID → IPv6 multicast group derivation (consistent-hash); control groups |
 | `seqhash`  | XXH64 per-flow HashKey computation                                      |
 | `sequence` | Per-shard monotonic counters (`sync/atomic`, zero-alloc)                |

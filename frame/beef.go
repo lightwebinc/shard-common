@@ -1,4 +1,4 @@
-// BRC-148 BEEF object frame encode/decode.
+// BRC-149 BEEF object frame encode/decode.
 //
 // A FrameVer 0x09 frame uses the same 92-byte header layout as BRC-124 but
 // carries a BEEF-family transaction object (BRC-62 / BRC-95 / BRC-96)
@@ -16,7 +16,7 @@ import (
 	"io"
 )
 
-// BEEFFrame is the parsed in-memory representation of a BRC-148 BEEF object
+// BEEFFrame is the parsed in-memory representation of a BRC-149 BEEF object
 // datagram (FrameVer 0x09, 92-byte header).
 //
 // Payload is a zero-copy slice pointing into the buffer passed to
@@ -30,7 +30,7 @@ type BEEFFrame struct {
 	Payload   []byte   // BEEF object verbatim (leading marker identifies the encoding)
 }
 
-// DecodeBEEF parses a raw BRC-148 BEEF object datagram into a BEEFFrame.
+// DecodeBEEF parses a raw BRC-149 BEEF object datagram into a BEEFFrame.
 //
 // The returned BEEFFrame.Payload is a zero-copy slice into buf. The caller
 // must not modify or reuse buf while the BEEFFrame is in scope.
