@@ -3,7 +3,6 @@
 [![CI](https://github.com/lightwebinc/shard-common/actions/workflows/ci.yml/badge.svg)](https://github.com/lightwebinc/shard-common/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/lightwebinc/shard-common)](https://github.com/lightwebinc/shard-common/releases)
 [![Go Reference](https://pkg.go.dev/badge/github.com/lightwebinc/shard-common.svg)](https://pkg.go.dev/github.com/lightwebinc/shard-common)
-[![Go Report Card](https://goreportcard.com/badge/github.com/lightwebinc/shard-common)](https://goreportcard.com/report/github.com/lightwebinc/shard-common)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
 > Part of the [**BSV Layered Multicast**](https://github.com/lightwebinc/bsv-multicast) open-source project — see the main repository for the full architecture, design docs, and BRC specifications.
