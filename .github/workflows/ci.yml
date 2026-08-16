@@ -17,7 +17,7 @@ jobs:
 
       - uses: actions/setup-go@v6
         with:
-          go-version-file: go.mod
+          go-version: "1.26.6"
 
       - name: go mod tidy check
         run: |
@@ -35,7 +35,7 @@ jobs:
 
       - uses: actions/setup-go@v6
         with:
-          go-version-file: go.mod
+          go-version: "1.26.6"
 
       - name: govulncheck
         run: |
@@ -50,7 +50,7 @@ jobs:
 
       - uses: actions/setup-go@v6
         with:
-          go-version-file: go.mod
+          go-version: "1.26.6"
 
       - name: go vet
         run: go vet ./...
@@ -66,7 +66,7 @@ jobs:
 
       - uses: actions/setup-go@v6
         with:
-          go-version-file: go.mod
+          go-version: "1.26.6"
 
       - name: Unit tests
         run: go test -race ./...
