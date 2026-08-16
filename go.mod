@@ -1,6 +1,6 @@
 module github.com/lightwebinc/shard-common
 
-go 1.26.6
+go 1.26.2
 
 require (
 	github.com/aerospike/aerospike-client-go/v8 v8.7.0
