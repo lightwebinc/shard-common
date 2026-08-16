@@ -9,7 +9,7 @@ import (
 // StripBytes is the down-direction inverse of [MulticastBytes]: it turns a
 // fully-encoded multicast frame of class c into the bare push-object bytes
 // delivered on that class's single-class lane. The two directions live in this
-// one package so they cannot drift — for every registered class,
+// one package so they cannot drift — for ClassTx/ClassSubtree/ClassBlock,
 // StripBytes(c, MulticastBytes(c, obj)) reproduces obj.
 //
 //   - ClassTx      → the BRC-12 raw / BRC-30 EF transaction payload of the
@@ -21,6 +21,9 @@ import (
 //   - ClassBlock   → the verbatim BRC-144 body carried in the BRC-131 frame.
 //     A BRC-131 whose payload is not a whole BRC-144 (a lossy native
 //     BlockAnnounce, or a coinbase) returns [ErrNotStrippable].
+//   - ClassBEEF    → the verbatim BEEF object of the FrameVer 0x09 frame. Its
+//     up-direction inverse is [BEEFMulticastBytes] via the submission-record
+//     expansion, not [MulticastBytes].
 //
 // The returned buffer is freshly allocated and independent of mcast.
 func StripBytes(c Class, mcast []byte) ([]byte, error) {

@@ -1,6 +1,7 @@
-// BRC-148 BEEF object plane codecs: marker/identity helpers, the submission
-// record (up-direction, ClassBEEF lane grammar), the delivery record
-// (down-direction), and the single-frame multicast wrap.
+// BRC-148/149 BEEF object plane codecs: marker/identity helpers (TopicID /
+// ContentID, BRC-148), the BRC-149 submission record (up-direction, ClassBEEF
+// lane grammar), the BRC-149 delivery record (down-direction), and the
+// single-frame multicast wrap.
 //
 // Unlike the other classes, a ClassBEEF lane does not carry bare objects —
 // BEEF bytes are not length-walkable without a full structural parse, which

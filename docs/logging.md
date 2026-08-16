@@ -89,7 +89,7 @@ work described below.
 
 ### 1. One shared emitter: `shard-common/logging`
 
-A single small package, imported by all five binaries (`shard-common` is already
+A single small package, imported by every binary (`shard-common` is already
 the universal dependency). It owns initialization so the five divergent setup
 sites collapse to one call.
 
@@ -234,8 +234,8 @@ on the slow NIC / old kernel / undersized rmem").
 
 If a field can't be read on a platform, omit it — the inventory is best-effort
 and must never block or fail startup. gopsutil is the only new dependency, and it
-lands in `shard-common/logging` (or a sibling `shard-common/hostinfo`) so all
-five binaries inherit it identically.
+lands in `shard-common/logging` (or a sibling `shard-common/hostinfo`) so every
+binary inherits it identically.
 
 **Why a log and not a metric:** these are high-cardinality *strings* (CPU model,
 kernel release, NIC driver). As a metric they would be a single

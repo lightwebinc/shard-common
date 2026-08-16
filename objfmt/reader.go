@@ -9,7 +9,7 @@ import (
 // DefaultMaxObject bounds a single object read from a stream. Transactions
 // sit far below it; it exists so a corrupt or hostile length field cannot
 // balloon memory. Lanes carrying larger classes (subtree, block) raise it
-// explicitly when those codecs register.
+// explicitly via [Reader.SetMaxObject].
 const DefaultMaxObject = 64 << 20 // 64 MiB
 
 // Reader splits a single-class byte stream into whole objects. The lane

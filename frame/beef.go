@@ -70,7 +70,7 @@ func DecodeBEEF(buf []byte) (*BEEFFrame, error) {
 	return bf, nil
 }
 
-// EncodeBEEF serialises a BRC-148 BEEF object frame into buf and returns the
+// EncodeBEEF serialises a BRC-149 BEEF object frame into buf and returns the
 // number of bytes written.
 // buf must be at least HeaderSize + len(f.Payload) bytes long.
 func EncodeBEEF(f *BEEFFrame, buf []byte) (int, error) {
@@ -93,7 +93,7 @@ func EncodeBEEF(f *BEEFFrame, buf []byte) (int, error) {
 	return total, nil
 }
 
-// IsBEEFFrame reports whether buf begins with a valid BRC-148 BEEF object
+// IsBEEFFrame reports whether buf begins with a valid BRC-149 BEEF object
 // header (magic + FrameVer == 0x09) without performing a full decode.
 // It returns false for any buffer shorter than [HeaderSizeLegacy].
 func IsBEEFFrame(buf []byte) bool {

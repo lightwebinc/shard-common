@@ -355,10 +355,10 @@ func Decode(buf []byte) (*Frame, error) {
 		// handle a single-tx Frame can distinguish them. Use the bundle package.
 		return nil, fmt.Errorf("%w: FrameVer 0x08 is a BRC-142 bundle frame; use bundle.Decode", ErrBadVer)
 	case FrameVerV9:
-		// BRC-148 BEEF object frames are decoded separately; Decode returns an
+		// BRC-149 BEEF object frames are decoded separately; Decode returns an
 		// error so callers that only handle Frame can distinguish them.
 		// Use [DecodeBEEF] to obtain a [BEEFFrame].
-		return nil, fmt.Errorf("%w: FrameVer 0x09 is a BRC-148 BEEF object frame; use DecodeBEEF", ErrBadVer)
+		return nil, fmt.Errorf("%w: FrameVer 0x09 is a BRC-149 BEEF object frame; use DecodeBEEF", ErrBadVer)
 	default:
 		return nil, fmt.Errorf("%w: got 0x%02X", ErrBadVer, fver)
 	}

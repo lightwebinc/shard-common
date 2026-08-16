@@ -89,8 +89,11 @@ Codec summary (`bundle` package; FrameVer `0x08`, 66-byte big-endian header):
 
 ## 3b. BRC-149 BEEF Object Frame
 
-Canonical wire spec: BRC-149 (the `FrameVer 0x09` frame plus the
-submission/delivery records); shard-domain/plane partitioning is BRC-148.
+Canonical wire spec:
+[BRC-149 BEEF Object Frame](https://github.com/lightwebinc/bsv-multicast/blob/main/docs/brc-149-beef-object-frame.md)
+(the `FrameVer 0x09` frame plus the submission/delivery records);
+shard-domain/plane partitioning is
+[BRC-148 Shard Domains / BEEF Plane](https://github.com/lightwebinc/bsv-multicast/blob/main/docs/brc-148-shard-domain-beef-plane.md).
 
 Codec summary (`frame.DecodeBEEF` + `objfmt` records; FrameVer `0x09`,
 92-byte header, layout-identical to BRC-124):

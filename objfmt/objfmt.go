@@ -46,7 +46,7 @@ const (
 	ClassSubtree
 	// ClassBlock is a BRC-144 block push frame.
 	ClassBlock
-	// ClassBEEF is a BRC-148 BEEF submission record (not a bare BEEF object —
+	// ClassBEEF is a BRC-149 BEEF submission record (not a bare BEEF object —
 	// BEEF bytes are not length-walkable, so the lane carries the explicit
 	// length-carrying record; see beef.go).
 	ClassBEEF
@@ -99,7 +99,7 @@ var (
 //
 // It returns [ErrShort] when buf is a valid but incomplete prefix,
 // [ErrMalformed] when buf cannot be a valid object, and
-// [ErrClassNotRegistered] for classes whose codec has not landed.
+// [ErrClassNotRegistered] for a class value with no registered codec.
 func Size(c Class, buf []byte) (int, error) {
 	switch c {
 	case ClassTx:
