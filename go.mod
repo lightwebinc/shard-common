@@ -3,7 +3,7 @@ module github.com/lightwebinc/shard-common
 go 1.26.2
 
 require (
-	github.com/aerospike/aerospike-client-go/v8 v8.7.0
+	github.com/aerospike/aerospike-client-go/v8 v8.8.0
 	github.com/alicebob/miniredis/v2 v2.38.0
 	github.com/cespare/xxhash/v2 v2.3.0
 	github.com/redis/go-redis/v9 v9.19.0
