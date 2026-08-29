@@ -219,11 +219,60 @@ func ToStandard(tx []byte) ([]byte, error) {
 // internal byte order — of the transaction at the start of tx. For a BRC-30
 // EF transaction the ID is computed with the EF extras excluded, matching
 // how every consumer derives it.
+//
+// The standard serialization is streamed into the hash span by span rather
+// than materialised, so this allocates nothing on either the raw or the EF
+// path. Use [ToStandard] when the standard bytes themselves are needed; the
+// two agree by construction (same walk, same retained spans).
+//
+// The walk mirrors ToStandard's. TxSize has already validated and
+// bounds-checked the whole transaction and tx is re-sliced to it, so every
+// offset computed below is within tx; the VarInt errors are still threaded
+// rather than discarded so a future divergence from TxSize surfaces as an
+// error instead of a silently wrong id.
 func TxID(tx []byte) ([32]byte, error) {
-	std, err := ToStandard(tx)
+	n, err := TxSize(tx)
 	if err != nil {
 		return [32]byte{}, err
 	}
-	first := sha256.Sum256(std)
+	tx = tx[:n]
+	if !IsEF(tx) {
+		first := sha256.Sum256(tx)
+		return sha256.Sum256(first[:]), nil
+	}
+
+	h := sha256.New()
+	h.Write(tx[0:4]) // version
+	off := 10        // skip marker
+
+	inCount, n2, err := varInt(tx, off)
+	if err != nil {
+		return [32]byte{}, err
+	}
+	h.Write(tx[off : off+n2])
+	off += n2
+
+	for i := uint64(0); i < inCount; i++ {
+		start := off
+		off += 36 // prev txid + index
+		sLen, n3, err := varInt(tx, off)
+		if err != nil {
+			return [32]byte{}, err
+		}
+		off += n3 + int(sLen) + 4 // script + sequence
+		h.Write(tx[start:off])
+
+		off += 8 // skip spent value
+		lLen, n4, err := varInt(tx, off)
+		if err != nil {
+			return [32]byte{}, err
+		}
+		off += n4 + int(lLen) // skip spent locking script
+	}
+
+	h.Write(tx[off:]) // outputs + locktime, verbatim
+
+	var first [32]byte
+	h.Sum(first[:0])
 	return sha256.Sum256(first[:]), nil
 }

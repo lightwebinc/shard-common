@@ -475,3 +475,93 @@ func TestMulticastFrameRoundTrip(t *testing.T) {
 		t.Fatal("decoded TxID differs")
 	}
 }
+
+// buildEFMulti hand-assembles a BRC-30 EF transaction with nIn inputs and
+// nOut outputs so the TxID walk is exercised across the input loop and across
+// VarInt widths (counts and script lengths ≥ 0xFD take the 3-byte form).
+func buildEFMulti(t *testing.T, nIn, nOut, inScript, outScript, spentScript int) []byte {
+	t.Helper()
+	var b bytes.Buffer
+	b.Write([]byte{0x01, 0x00, 0x00, 0x00}) // version 1
+	b.Write([]byte{0x00, 0x00, 0x00, 0x00, 0x00, 0xEF})
+	writeVarInt(&b, uint64(nIn))
+	for i := 0; i < nIn; i++ {
+		b.Write(make([]byte, 32))               // prev txid
+		b.Write([]byte{0xFF, 0xFF, 0xFF, 0xFF}) // prev index
+		writeVarInt(&b, uint64(inScript))
+		b.Write(bytes.Repeat([]byte{0xAB}, inScript))
+		b.Write([]byte{0xFF, 0xFF, 0xFF, 0xFF})                         // sequence
+		b.Write([]byte{0x10, 0x27, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}) // spent value
+		writeVarInt(&b, uint64(spentScript))
+		b.Write(bytes.Repeat([]byte{0xEE}, spentScript))
+	}
+	writeVarInt(&b, uint64(nOut))
+	for i := 0; i < nOut; i++ {
+		b.Write([]byte{0x40, 0x42, 0x0F, 0x00, 0x00, 0x00, 0x00, 0x00}) // value
+		writeVarInt(&b, uint64(outScript))
+		b.Write(bytes.Repeat([]byte{0xCD}, outScript))
+	}
+	b.Write([]byte{0x00, 0x00, 0x00, 0x00}) // locktime
+	return b.Bytes()
+}
+
+// TestTxIDMatchesToStandard pins the invariant the streaming TxID rests on:
+// hashing the spans in place must equal SHA256d over the materialised
+// standard serialization, for every transaction shape — including the VarInt
+// widths a single-input fixture never reaches.
+func TestTxIDMatchesToStandard(t *testing.T) {
+	cases := []struct {
+		name                                        string
+		nIn, nOut, inScript, outScript, spentScript int
+	}{
+		{"1in1out", 1, 1, 107, 25, 25},
+		{"1in2out", 1, 2, 107, 25, 25},
+		{"3in5out", 3, 5, 107, 25, 25},
+		{"varint3_incount", 0xFD, 1, 8, 25, 25},
+		{"varint3_outcount", 1, 0xFD, 107, 8, 25},
+		{"varint3_scripts", 2, 2, 0x120, 0x140, 0x110},
+		{"empty_scripts", 2, 2, 0, 0, 0},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			ef := buildEFMulti(t, c.nIn, c.nOut, c.inScript, c.outScript, c.spentScript)
+			std, err := ToStandard(ef)
+			if err != nil {
+				t.Fatalf("ToStandard: %v", err)
+			}
+			first := sha256.Sum256(std)
+			want := sha256.Sum256(first[:])
+
+			got, err := TxID(ef)
+			if err != nil {
+				t.Fatalf("TxID: %v", err)
+			}
+			if got != want {
+				t.Fatalf("TxID = %x, want SHA256d(ToStandard) = %x", got, want)
+			}
+		})
+	}
+}
+
+// TestTxIDNoAlloc guards the reason TxID streams instead of materialising:
+// it runs on the proxy's per-transaction ingress path, where one allocation
+// per transaction is one allocation too many.
+func TestTxIDNoAlloc(t *testing.T) {
+	ef := buildEFMulti(t, 4, 4, 107, 25, 25)
+	std := buildTx(t, 107, 25)
+	for _, c := range []struct {
+		name string
+		tx   []byte
+	}{{"ef", ef}, {"standard", std}} {
+		t.Run(c.name, func(t *testing.T) {
+			got := testing.AllocsPerRun(100, func() {
+				if _, err := TxID(c.tx); err != nil {
+					t.Fatal(err)
+				}
+			})
+			if got != 0 {
+				t.Fatalf("TxID allocated %v times per call, want 0", got)
+			}
+		})
+	}
+}
