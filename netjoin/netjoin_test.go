@@ -2,7 +2,6 @@ package netjoin
 
 import (
 	"context"
-	"encoding/binary"
 	"net"
 	"net/netip"
 	"runtime"
@@ -30,9 +29,17 @@ func openUDP6(t *testing.T) (fd int) {
 	return fd
 }
 
+// loopbackName is "lo" on Linux and "lo0" on the BSDs.
+func loopbackName() string {
+	if runtime.GOOS == "linux" {
+		return "lo"
+	}
+	return "lo0"
+}
+
 func loopbackIndex(t *testing.T) int {
 	t.Helper()
-	iface, err := net.InterfaceByName("lo")
+	iface, err := net.InterfaceByName(loopbackName())
 	if err != nil {
 		t.Fatalf("lookup lo: %v", err)
 	}
@@ -40,8 +47,8 @@ func loopbackIndex(t *testing.T) int {
 }
 
 func TestJoinASM_Loopback(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("netjoin requires Linux")
+	if runtime.GOOS != "linux" && runtime.GOOS != "freebsd" {
+		t.Skip("netjoin loopback tests run on Linux and FreeBSD")
 	}
 	t.Parallel()
 	fd := openUDP6(t)
@@ -56,8 +63,8 @@ func TestJoinASM_Loopback(t *testing.T) {
 }
 
 func TestJoinSSM_Loopback(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("netjoin requires Linux")
+	if runtime.GOOS != "linux" && runtime.GOOS != "freebsd" {
+		t.Skip("netjoin loopback tests run on Linux and FreeBSD")
 	}
 	t.Parallel()
 	fd := openUDP6(t)
@@ -89,44 +96,6 @@ func TestJoin_RejectsIPv4Source(t *testing.T) {
 	srcs := []netip.Addr{netip.MustParseAddr("10.0.0.1")}
 	if err := Join(-1, 1, grp, srcs); err == nil {
 		t.Fatal("Join with IPv4 source returned nil, want error")
-	}
-}
-
-// TestPutSockaddrIn6_Layout verifies the sockaddr_in6 byte layout the kernel
-// expects: native-endian family at [0..2], port (BE) at [2..4], flowinfo
-// (BE) at [4..8], 16-byte address at [8..24], scope_id at [24..28].
-func TestPutSockaddrIn6_Layout(t *testing.T) {
-	t.Parallel()
-	var buf [128]byte
-	addr := netip.MustParseAddr("fd20::dead:beef")
-	putSockaddrIn6(&buf, addr)
-
-	// Family is AF_INET6 in native endian.
-	if got := binary.NativeEndian.Uint16(buf[0:2]); got != unix.AF_INET6 {
-		t.Errorf("family = %d, want %d (AF_INET6)", got, unix.AF_INET6)
-	}
-	// Port zero.
-	if buf[2] != 0 || buf[3] != 0 {
-		t.Errorf("port bytes = %v, want zero", buf[2:4])
-	}
-	// Flowinfo zero.
-	for i := 4; i < 8; i++ {
-		if buf[i] != 0 {
-			t.Errorf("flowinfo byte %d = %d, want 0", i, buf[i])
-		}
-	}
-	// Address bytes match.
-	want := addr.As16()
-	for i := 0; i < 16; i++ {
-		if buf[8+i] != want[i] {
-			t.Errorf("addr byte %d = %#x, want %#x", i, buf[8+i], want[i])
-		}
-	}
-	// Scope_id zero.
-	for i := 24; i < 28; i++ {
-		if buf[i] != 0 {
-			t.Errorf("scope_id byte %d = %d, want 0", i, buf[i])
-		}
 	}
 }
 

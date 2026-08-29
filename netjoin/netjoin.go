@@ -13,7 +13,6 @@ package netjoin
 
 import (
 	"context"
-	"encoding/binary"
 	"fmt"
 	"math/rand/v2"
 	"net/netip"
@@ -95,10 +94,11 @@ func leaveSSM(fd, ifaceIdx int, group, source netip.Addr) error {
 }
 
 // groupSourceReq mirrors C's `struct group_source_req` from <netinet/in.h>.
-// Layout on Linux (LP64): __u32 gsr_interface + 4 bytes alignment padding
-// + struct sockaddr_storage gsr_group (128 B) + struct sockaddr_storage
-// gsr_source (128 B). Total 264 bytes. The sockaddr_storage fields hold
-// sockaddr_in6 values for IPv6 groups.
+// Layout on Linux and the BSDs (LP64): uint32 gsr_interface + 4 bytes
+// alignment padding + struct sockaddr_storage gsr_group (128 B) + struct
+// sockaddr_storage gsr_source (128 B). Total 264 bytes. The sockaddr_storage
+// fields hold sockaddr_in6 values whose leading bytes differ per OS; see
+// putSockaddrIn6 in sockaddr_linux.go / sockaddr_bsd.go.
 type groupSourceReq struct {
 	Interface uint32
 	_         [4]byte
@@ -124,22 +124,6 @@ func ssmSetsockopt(fd, ifaceIdx int, group, source netip.Addr, opt int) error {
 		return errno
 	}
 	return nil
-}
-
-// putSockaddrIn6 writes a sockaddr_in6 into the 128-byte sockaddr_storage
-// buffer. The IPv6 address goes in the sin6_addr field at offset 8; port,
-// flowinfo, and scope_id are left zero.
-//
-// sin6_family is written in NATIVE byte order per the Linux sockaddr ABI
-// (sa_family_t is an unsigned short interpreted by the kernel without
-// htons). On all Linux architectures we target (amd64, arm64) this is
-// little-endian.
-func putSockaddrIn6(buf *[128]byte, addr netip.Addr) {
-	binary.NativeEndian.PutUint16(buf[0:2], unix.AF_INET6)
-	// port (2..4), flowinfo (4..8) zero.
-	a := addr.As16()
-	copy(buf[8:24], a[:])
-	// scope_id (24..28) zero.
 }
 
 // Limiter is a token-bucket rate limiter intended to bound the per-listener
