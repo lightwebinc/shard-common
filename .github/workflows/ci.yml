@@ -9,9 +9,23 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # freebsd/amd64 is a real deployment target (the FreeBSD spines), and this
+  # module is where the GOOS split actually lives: netjoin/sockaddr_bsd.go vs
+  # netjoin/sockaddr_linux.go, hostinfo/platform_other.go vs
+  # hostinfo/platform_linux.go. Until this matrix existed nothing in CI ever
+  # compiled the BSD half, and it rotted unnoticed — the netjoin sockaddr layout
+  # bug was found by hand on a live node, not here.
+  #
+  # A linux runner can only BUILD and VET the freebsd target, never run its
+  # tests, so the freebsd entry is honestly a compile+type-check job. That is
+  # still the whole failure class that was escaping.
   build:
-    name: build
+    name: build (${{ matrix.goos }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        goos: [linux, freebsd]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -19,13 +33,30 @@ jobs:
         with:
           go-version: "1.26.6"
 
+      # `go mod tidy` resolves imports across every build configuration, so its
+      # result does not depend on GOOS. Run it once.
       - name: go mod tidy check
+        if: matrix.goos == 'linux'
         run: |
           go mod tidy
           git diff --exit-code go.mod go.sum
 
       - name: Build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: amd64
         run: go build -buildvcs=false ./...
+
+      # `go build ./...` never compiles _test.go, so a platform-gated test that
+      # references a linux-only symbol still slips through. go vet type-checks
+      # the test files as well. Only the cross target is vetted here; the linux
+      # vet already runs in the lint job next to golangci-lint.
+      - name: Vet
+        if: matrix.goos != 'linux'
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: amd64
+        run: go vet ./...
 
   security:
     name: security
