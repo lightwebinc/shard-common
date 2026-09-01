@@ -204,6 +204,30 @@ a `reason` label (e.g. `decode_error`, `write_error`, `truncated`,
 
 ---
 
+## 8a. Tee Envelope (`teewire`, node-local only)
+
+The tee envelope is NOT a fabric wire format: it exists solely on a node's
+loopback, wrapping a datagram one co-resident process mirrors to another
+(shard-listener `-retry-tee` → retry-endpoint `-tee-listen`). It preserves the
+mirrored datagram's original source so per-source cache accounting survives the
+loopback hop.
+
+```text
+Offset  Size  Field
+ 0      4     Magic 0x54454531 ("TEE1" — first byte differs from MagicBSV,
+              so raw frames and envelopes share a socket unambiguously)
+ 4      1     Version (0x01)
+ 5      1     Flags (reserved; writers MUST send 0, readers MUST ignore)
+ 6      16    Original source IPv6 address
+22      2     Original source UDP port (big-endian)
+24      …     Original datagram bytes, verbatim
+```
+
+Trust model: the envelope asserts a source address, so a receiver MUST accept
+it only on a loopback-bound socket. Zone identifiers are not carried (fabric
+sources are global/ULA `/128`s). Codec: `shard-common/teewire`
+(`AppendEncap` / `Decap` / `IsEncap`).
+
 ## 9. Constants Reference
 
 | Name | Value | Notes |
