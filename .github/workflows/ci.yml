@@ -69,12 +69,14 @@ jobs:
           go-version: "1.27.1"
 
       - name: govulncheck
-        # PINNED like the Dagger repos: govulncheck >=v1.2 panics on Go 1.26
-        # ("ForEachElement called on type containing *types.TypeParam") on some
-        # code shapes, and @latest floats into it without a commit here. The vuln
-        # DATABASE is fetched at run time, so the pin costs no detection freshness.
+        # PINNED, and the pin TRACKS THE TOOLCHAIN: v1.1.4 was held because
+        # >=v1.2 panicked on Go 1.26 ("ForEachElement called on type containing
+        # *types.TypeParam"). On Go 1.27 that inverts — v1.1.4's x/tools is too
+        # old to read 1.27 export data and crashes instead. Re-check this pin on
+        # every go-version bump; it is not inert. The vuln DATABASE is fetched at
+        # run time, so pinning the binary costs no detection freshness.
         run: |
-          go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
+          go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
           govulncheck ./...
 
   lint:
