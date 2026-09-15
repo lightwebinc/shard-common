@@ -2,6 +2,9 @@ name: CI
 
 on:
   push:
+    # main only: PR branches are covered by the pull_request run; a bare
+    # push trigger ran the matrix twice per PR and again on every tag.
+    branches: [main]
   pull_request:
 
 concurrency:
