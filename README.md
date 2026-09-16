@@ -9,7 +9,8 @@
 
 Shared protocol primitives for the BSV transaction sharding pipeline. Imported
 by `shard-proxy`, `shard-listener`, `retry-endpoint`, `subtx-generator`,
-`shard-manifest`, and `teranode-bridge`.
+`shard-manifest`, `teranode-bridge`, `arcade-bridge`, `beef-generator`, and
+`multicast-test`.
 
 ## Packages
 
@@ -37,13 +38,15 @@ The `shard` package also exposes the SSM addressing helpers: `SourceMode`
 `FF05` (ASM site), `FF35` (SSM site), `FF3E` (SSM global) and rejects ASM
 at global scope per RFC 8815.
 
-The `frame.ShardManifest` codec implements BRC-139's SSM and
-live-resharding extensions: `Flags.SourceModeSSM` (bit 3),
+The `frame.ShardManifest` codec implements BRC-139's SSM,
+live-resharding, and BRC-148 domain extensions: `Flags.SourceModeSSM` (bit 3),
 `Flags.SourcesValid` (bit 4), `Flags.PilotOnly` (bit 5),
-`Flags.SuccessorValid` (bit 6), `SourceCount` at bytes [42:44], the
-trailing `SourceCount × 16`-byte sources payload, and the 24-byte
-`SuccessorBlock` carrying `(GenerationID, ShardBits, Flags, TransitionEpoch)`
-for in-flight generation transitions. See the
+`Flags.SuccessorValid` (bit 6), `Flags.DomainsValid` (bit 7),
+`SourceCount` at bytes [42:44], the trailing `SourceCount × 16`-byte sources
+payload, the 24-byte `SuccessorBlock` carrying
+`(GenerationID, ShardBits, Flags, TransitionEpoch)` for in-flight generation
+transitions, and the trailing BRC-148 Domains section (up to 15 per-plane
+24-byte descriptors, each with an optional per-domain Successor block). See the
 [SSM Support Plan](https://github.com/lightwebinc/bsv-multicast/blob/main/DESIGN.md#source-specific-multicast-ssm)
 and the
 [Automatic Shard Configuration Plan](https://github.com/lightwebinc/bsv-multicast/blob/main/DESIGN.md#automatic-shard-configuration)
@@ -51,11 +54,13 @@ for the system-level designs.
 
 ## Documentation
 
-- [Wire Protocol Specification](docs/protocol.md) — BRC-124/BRC-128 frame format, legacy BRC-12, BRC-142 coalescing (bundle) frame, shard derivation, proxy forward rules
+- [Wire Protocol Specification](docs/protocol.md) — BRC-124/BRC-128 frame format, legacy BRC-12, BRC-142 coalescing (bundle) frame, BRC-149 BEEF object frame, shard derivation, proxy forward rules, constants reference
+- [Modular Cache Backend](docs/cache-backend.md) — the `cache` interface, shipped backends, per-consumer wiring and flags
+- [Unified Component Logging](docs/logging.md) — the `logging`/`hostinfo`/`tracing` output contract shared by every binary
 
 ## Requirements
 
-- Go 1.25 or later
+- Go 1.26 or later (`go.mod` floor: 1.26.2)
 
 ## Build
 

@@ -1,10 +1,11 @@
 # Unified Component Logging Plan
 
-- Status: **Implemented** (emit side) — `shard-common v0.13.4` (`logging`,
-  `hostinfo`, `tracing` packages) wired into `shard-proxy v1.12.4`,
-  `shard-listener v1.5.4`, `retry-endpoint v1.4.2`, `shard-manifest v0.2.1`,
-  `subtx-generator v0.2.1`; e2e `multicast-test` scenario 73. Collector rollout
-  (Grafana Alloy → Loki) + node_exporter remain the deferred infra phase.
+- Status: **Implemented** (emit side) — the `logging`, `hostinfo`, and
+  `tracing` packages are wired into every service binary (`shard-proxy`,
+  `shard-listener`, `retry-endpoint`, `shard-manifest`, `subtx-generator`) and
+  covered by the `multicast-test` e2e suite; see each repo's git tags for the
+  release that carries it. Collector rollout (Grafana Alloy → Loki) +
+  node_exporter remain the deferred infra phase.
 - Scope (this phase): the **emit side** only. Standardize how every component
   *produces* logs so they are structured, self-identifying, and consistent.
 - **Deferred to a later phase (but its architecture is now decided, see
@@ -32,7 +33,7 @@ carry: which group failed to join, which errno a `sendmmsg` returned, which
 deprecated flag a host still uses, why a frame was dropped. Today that narrative
 is inconsistent and unattributed, so it is unusable at fleet scale.
 
-### Current state (inventory)
+### Baseline before this plan (historical inventory)
 
 | Component | Logger | Handler | Sink | Identity attrs on logs? |
 |-----------|--------|---------|------|-------------------------|
@@ -377,13 +378,13 @@ lines**, and the collector compresses what remains on the wire.
 | Phase | Deliverable | Repos | Status |
 |-------|-------------|-------|--------|
 | 0 | This design doc | `shard-common` | done |
-| 1 | `shard-common/logging` (+ `hostinfo`) package; add gopsutil dep | `shard-common` | done (v0.13.4) |
-| 2 | Wire all binaries to it; add `-log-format`/`LOG_FORMAT` + `-log-level`/`LOG_LEVEL` (LevelVar) config; collapse boot lines into one `startup.config`; convert `subtx-generator` off plain `log` | all services | done (v0.13.4) |
-| 3 | One-shot `host.inventory` event at startup (gopsutil + ethtool ioctls + sysctls) | all services | done (v0.13.4) |
-| 4 | Category-8 in-process OS/NIC syscall logs at proxy/listener | `shard-proxy`, `shard-listener` | done (v0.13.4) |
-| 5 | Runtime level control (SIGHUP + admin endpoint) | all services | done (v0.13.4) |
-| 6 | `shard-common/tracing` (opt-in OTLP traces, no-op when off); spans on control-plane flows only | `shard-common` + all services | done (v0.13.4) |
-| 7 | Slim `<prefix>_host_info` gauge mirror in each component | all services | done (v0.13.4) |
+| 1 | `shard-common/logging` (+ `hostinfo`) package; add gopsutil dep | `shard-common` | done |
+| 2 | Wire all binaries to it; add `-log-format`/`LOG_FORMAT` + `-log-level`/`LOG_LEVEL` (LevelVar) config; collapse boot lines into one `startup.config`; convert `subtx-generator` off plain `log` | all services | done |
+| 3 | One-shot `host.inventory` event at startup (gopsutil + ethtool ioctls + sysctls) | all services | done |
+| 4 | Category-8 in-process OS/NIC syscall logs at proxy/listener | `shard-proxy`, `shard-listener` | done |
+| 5 | Runtime level control (SIGHUP + admin endpoint) | all services | done |
+| 6 | `shard-common/tracing` (opt-in OTLP traces, no-op when off); spans on control-plane flows only | `shard-common` + all services | done |
+| 7 | Slim `<prefix>_host_info` gauge mirror in each component | all services | done |
 | — | **Collector rollout (Grafana Alloy → Loki) + node_exporter** | infra repos | **deferred — separate plan, architecture decided above** |
 
 ## Config surface (Phases 2 & 4)

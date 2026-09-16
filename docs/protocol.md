@@ -104,7 +104,10 @@ Codec summary (`frame.DecodeBEEF` + `objfmt` records; FrameVer `0x09`,
   bytes, not duplicated in the header.
 - **Submission record** (up; leading `0xBEEF` tag — the third grammar on the
   tx port): `u16 tag ∥ u8 recordVer ∥ u8 topicCount ∥ topics ∥ u32 objectLen
-  ∥ object`; ingress expands one record into one `0x09` frame per topic.
+  ∥ object`; ingress expands one record into one `0x09` frame per topic. The
+  grammar carries `topicCount` 1..15, but admitting a multi-topic record is an
+  ingress policy, not a codec property: the reference proxy admits one topic
+  per record unless an authenticated submit policy is installed.
 - **Delivery record** (down; stripped lanes): 32-byte `TopicID` ∥ `u32` BE
   object length ∥ object (`objfmt.EncodeBEEFDelivery`).
 
@@ -194,13 +197,15 @@ unsupported version byte, or read error).
 | Condition | UDP | TCP |
 |----------------------------------------|----------------------------------|----------------------------------|
 | Bad magic | datagram silently dropped | connection closed |
-| Unknown frame version (not BRC-12/BRC-124)      | datagram silently dropped | connection closed                |
+| Unknown frame version                  | datagram silently dropped | connection closed                |
 | Truncated datagram                     | datagram silently dropped | read error → connection closed   |
 | Egress write error | logged; next interface attempted | logged; next interface attempted |
 
 All drops are counted in the `bsp_packets_dropped_total` Prometheus metric with
 a `reason` label (e.g. `decode_error`, `write_error`, `truncated`,
-`bundle_malformed`); see the shard-proxy docs for the current reason set.
+`bundle_malformed`, `stamped_ingress`, `ingress_not_ef`, `beef_oversize`); the
+authoritative reason set is the shard-proxy `forwarder` package and its
+[configuration reference](https://github.com/lightwebinc/shard-proxy/blob/main/docs/configuration.md).
 
 ---
 
@@ -248,15 +253,21 @@ sources are global/ULA `/128`s). Codec: `shard-common/teewire`
 | `HeaderSizeV3` | `104` | BRC-130 fragment header bytes |
 | `BlockHeaderSize` | `80` | BRC-135 fixed payload size (raw BSV block header) |
 | `BlockHeaderFrameSize` | `172` | BRC-135 total frame size (`HeaderSize + BlockHeaderSize`) |
+| `MsgTypeNACK` / `MsgTypeMISS` / `MsgTypeACK` | `0x10` / `0x11` / `0x12` | BRC-126 retransmission request / responses |
+| `MsgTypeADVERT` | `0x20` | BRC-126 retry-endpoint beacon advertisement (shares `GroupBeacon`) |
 | `MsgTypeSubtreeGroupAnnounce` | `0x30` | BRC-127 SubtreeGroupAnnounce datagram type |
 | `SubtreeGroupAnnounceSize` | `64` | Fixed SubtreeGroupAnnounce datagram size |
 | `MsgTypeShardManifest` | `0x40` | BRC-139 ShardManifest datagram type |
 | `ShardManifestHeaderSize` | `64` | BRC-139 fixed header size; total = header + payload |
+| `SuccessorBlockSize` | `24` | BRC-139 Successor block (after the sources payload) |
+| `DomainDescriptorSize` | `24` | BRC-148 Domain Descriptor core; `MaxDomainDescriptors` = 15, `MaxDomainID` = `0x0E` |
+| `GroupCoinbaseFlow` | `0xFFF8` | **Virtual** index: BRC-133 coinbase HashKey derivation only (egress is `GroupBlockBroadcast`) |
+| `GroupAnchorFlow` | `0xFFF9` | **Virtual** index: BRC-134 anchor HashKey derivation only (egress is `GroupBlockBroadcast`) |
 | `GroupBlockHeader` | `0xFFFA` | Block header egress channel (BRC-135) |
 | `GroupSubtreeDataAnnounce` | `0xFFFB` | Control-plane subtree data group |
 | `GroupSubtreeGroupAnnounce` | `0xFFFC` | Control-plane subtree announce group |
-| `GroupBeacon` | `0xFFFD` | Control-plane ADVERT beacon group |
-| `GroupBlockBroadcast` | `0xFFFE` | Block control + anchor channel (FF0E global scope) |
+| `GroupBeacon` | `0xFFFD` | Control-plane group: BRC-126 ADVERT beacons and BRC-139 shard manifests (site/org/global scopes) |
+| `GroupBlockBroadcast` | `0xFFFE` | BRC-131 block announce + BRC-133 coinbase + BRC-134 anchor channel (configured scope; BRC-129 names global FF0E as the inter-domain posture) |
 | `DefaultGroupID` | `0x000B` | IANA Bitcoin multicast group-id (`FF0X::B`) |
 
 ## 10. Source-Specific Multicast (RFC 4607)
@@ -307,13 +318,15 @@ to a live set of IPv6 addresses for SSM `(S,G)` joins:
 ### 10.4 BRC-139 ShardManifest SSM wire format
 
 `frame.ShardManifest` carries three SSM-related flag bits and an
-optional sources payload:
+optional sources payload, plus two further extension bits:
 
 | Bit | Constant                        | Meaning                                                                                                            |
 | --- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
 | 3   | `ShardManifestFlagSourceModeSSM` | Announcer declares the data plane uses SSM (FF3x prefix per `shard.Prefix(SSM, scope)`).                          |
 | 4   | `ShardManifestFlagSourcesValid` | Trailing payload includes `SourceCount × 16` bytes of publisher source IPv6 addresses (network byte order).        |
 | 5   | `ShardManifestFlagPilotOnly`    | Manifest is exclusively a pilot/assignment broadcast (desired fleet state, not the announcer's own joins). Implies `Authoritative=1`; consumers MUST reject `PilotOnly=1 && Authoritative=0` as malformed. |
+| 6   | `ShardManifestFlagSuccessorValid` | A 24-byte Successor block `(GenerationID, ShardBits, Flags, TransitionEpoch)` follows the sources payload (live re-sharding). Requires `Authoritative=1`; the codec rejects a successor `ShardBits` more than ±1 from the announcer's. |
+| 7   | `ShardManifestFlagDomainsValid` | A BRC-148 Domains section (`u8 DomainCount` + 24-byte descriptors, each optionally followed by its own Successor block) is appended after the groups, sources, and Successor payloads. The last unallocated top-level flag bit. |
 
 `SourceCount` occupies bytes [42:44] (formerly reserved). The
 encoder/decoder enforce the BRC-139 coherence rules and return

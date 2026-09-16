@@ -1,7 +1,10 @@
 // Package frame defines the BSV-over-UDP BRC-12 (legacy), BRC-124/BRC-128,
 // BRC-130 (fragmentation), BRC-131 (block control), BRC-132 (subtree data),
-// BRC-134 (chained anchor transactions), and BRC-135 (block header) wire
-// formats used by the BSV transaction sharding pipeline.
+// BRC-134 (chained anchor transactions), BRC-135 (block header), and BRC-149
+// (BEEF object, [DecodeBEEF]) frame formats plus the BRC-127
+// SubtreeGroupAnnounce and BRC-139 ShardManifest control datagrams used by the
+// BSV transaction sharding pipeline. BRC-142 bundles (FrameVer 0x08) are only
+// detected here ([IsBundle]); their codec is the sibling bundle package.
 //
 // # Wire format — BRC-12 (legacy, 44 bytes)
 //

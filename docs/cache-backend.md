@@ -157,17 +157,12 @@ equivalents.
 | `-cache-dial-timeout` | `1s` | |
 | `-cache-op-timeout` | `1s` | per-op ceiling |
 
-## Rollout
+## Adoption
 
-1. **Release `shard-common`** with the `cache` package and the `txidset`
-   refactor (tag shard-common, then bump the dependency in each consumer's
-   `go.mod`). Dependents pin the new version; until then they build only
-   inside the Go workspace.
-2. **proxy / listener / retry-endpoint** pick up the new flags. Defaults are
-   unchanged (proxy/listener fail-open to tier-1 LRU; retry defaults to
-   `memory`).
-3. **Aerospike adopters** provision the namespace (infra role) and set
-   `-cache-backend=aerospike` / `*-backend=aerospike`.
+Defaults are unchanged for every consumer (proxy/listener fail-open to the
+tier-1 LRU; the retry endpoint defaults to `memory`). Aerospike adopters
+provision the namespace (infra role) and set `-cache-backend=aerospike` /
+`*-backend=aerospike`.
 
 ## Cross-repo surfaces
 

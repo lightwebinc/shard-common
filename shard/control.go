@@ -35,9 +35,11 @@ const (
 	// group. Used at site (FF05), org (FF08), and global (FF0E) scopes.
 	GroupBeacon GroupIdx = 0xFFFD
 
-	// GroupBlockBroadcast is the global control channel for
-	// producer-broadcast block data: BRC-131 block announces, BRC-133
-	// coinbase frames, and BRC-134 anchor frames. Mandatory FF0E scope.
+	// GroupBlockBroadcast is the control channel for producer-broadcast
+	// block data: BRC-131 block announces, BRC-133 coinbase frames, and
+	// BRC-134 anchor frames. Derived at the configured scope like every
+	// other control group; BRC-129 names global (FF0E) as the inter-domain
+	// deployment posture.
 	GroupBlockBroadcast GroupIdx = 0xFFFE
 )
 

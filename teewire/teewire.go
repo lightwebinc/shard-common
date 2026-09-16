@@ -1,7 +1,10 @@
 // Package teewire implements the loopback tee envelope: a 24-byte header
-// prepended to a raw fabric datagram when a co-resident process (shard-listener,
-// shard-proxy) mirrors received or egressed frames into a retry-endpoint's
-// tee-ingest socket over loopback UDP.
+// prepended to a raw fabric datagram when a co-resident process (today the
+// shard-listener's -retry-tee) mirrors received frames into a retry-endpoint's
+// tee-ingest socket (-tee-listen) over loopback UDP. The shard-proxy's
+// -retry-tee is a different mechanism: it mirrors its own egress as raw,
+// un-enveloped datagrams to the retry-endpoint's ordinary data port, where the
+// loopback source is the truthful origin.
 //
 // # Why an envelope exists
 //
