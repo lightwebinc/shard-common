@@ -101,8 +101,8 @@ jobs:
           # PIN. Unpinned this floats to latest, which is the one way an
           # untouched commit goes red — a new release adds a linter and the
           # next push fails on code nobody edited. Every other repo in the
-          # fleet pins (1bsv-ops here, the Dagger repos via lintImage); this
-          # was the sole gap. Keep it level with those.
+          # fleet pins its linter version; this was the sole gap. Keep it
+          # level with those.
           version: v2.13.2
 
   test:
