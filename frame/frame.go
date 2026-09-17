@@ -34,7 +34,7 @@
 //	    40     8   8B    HashKey        XXH64(senderIPv6 ∥ groupIdx ∥ subtreeID); stable per flow; 0 = unset
 //	    48     8   8B    SeqNum         Monotonic counter per flow; 0 = unset/unstamped
 //	    56    32   8B    SubtreeID      32-byte batch identifier; zeros = unset
-//	    88     4   8B    PayloadLen     uint32 BE (fragment data length)
+//	    88     4   8B    PayloadLen     uint32 BE (payload byte length)
 //	    92     *   —     Payload        raw serialised BSV transaction
 //
 // # Wire format — BRC-130 (104 bytes, fragmentation)
@@ -89,10 +89,12 @@
 //
 // # BRC-12 handling
 //
-// [Decode] accepts BRC-12, BRC-124/BRC-128, and BRC-130 frames.
+// [Decode] accepts BRC-12 and BRC-124/BRC-128 frames.
 // BRC-12 frames are decoded into a [Frame] with [Version] = [FrameVerV1]
 // and zero-valued BRC-124-only fields.
-// BRC-130 fragment frames are decoded into a [FragFrame].
+// BRC-130 fragment frames are NOT decoded here: Decode returns [ErrBadVer]
+// for FrameVer 0x03 so a Frame-only caller can tell fragments apart; use
+// [DecodeFragment] to obtain a [FragFrame].
 // Unknown versions return [ErrBadVer].
 //
 // # BSV transaction format compatibility

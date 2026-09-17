@@ -24,7 +24,10 @@ func TestBEEFVersionWordAndMarker(t *testing.T) {
 		{"beef v1", []byte{0x01, 0x00, 0xBE, 0xEF}, BEEFMarkerV1, true},
 		{"beef v2", []byte{0x02, 0x00, 0xBE, 0xEF}, BEEFMarkerV2, true},
 		{"atomic", []byte{0x01, 0x01, 0x01, 0x01}, AtomicBEEFMarker, true},
-		{"future beef version", []byte{0xFF, 0x00, 0xBE, 0xEF}, 0xEFBE00FF, true},
+		// The BRC-149 table is closed: an unallocated word inside the
+		// 0xEFBExxxx range is not a BEEF object.
+		{"unallocated beef version", []byte{0xFF, 0x00, 0xBE, 0xEF}, 0xEFBE00FF, false},
+		{"beef v3 not allocated", []byte{0x03, 0x00, 0xBE, 0xEF}, 0xEFBE0003, false},
 		{"low word zero not beef", []byte{0x00, 0x00, 0xBE, 0xEF}, 0xEFBE0000, false},
 		{"raw tx version", []byte{0x01, 0x00, 0x00, 0x00}, 1, false},
 		{"garbage", []byte{0xDE, 0xAD, 0xBE, 0xAA}, 0xAABEADDE, false},

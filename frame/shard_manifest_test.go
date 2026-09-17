@@ -612,3 +612,32 @@ func TestShardManifest_IsShardManifest(t *testing.T) {
 		t.Errorf("IsShardManifest on zero buffer = true")
 	}
 }
+
+// BRC-139 §Flags: PilotOnly implies Authoritative. A pilot manifest names
+// DESIRED fleet state, so accepting one from a non-authoritative announcer
+// would let any host on the beacon group issue assignments.
+func TestShardManifest_PilotOnlyRequiresAuthoritative(t *testing.T) {
+	m := makeShardManifest()
+	m.Flags |= ShardManifestFlagPilotOnly
+	buf := make([]byte, ShardManifestSize(m))
+	if _, err := EncodeShardManifest(m, buf); err != nil {
+		t.Fatalf("PilotOnly+Authoritative must encode: %v", err)
+	}
+
+	// Encoder rejects the combination.
+	m.Flags &^= ShardManifestFlagAuthoritative
+	if _, err := EncodeShardManifest(m, buf); !errors.Is(err, ErrShardManifestBadFlags) {
+		t.Errorf("EncodeShardManifest err = %v, want ErrShardManifestBadFlags", err)
+	}
+
+	// Decoder rejects it on the wire (the flag byte is at offset 7).
+	m.Flags |= ShardManifestFlagAuthoritative
+	n, err := EncodeShardManifest(m, buf)
+	if err != nil {
+		t.Fatalf("EncodeShardManifest: %v", err)
+	}
+	buf[7] &^= ShardManifestFlagAuthoritative
+	if _, err := DecodeShardManifest(buf[:n]); !errors.Is(err, ErrShardManifestBadFlags) {
+		t.Errorf("DecodeShardManifest err = %v, want ErrShardManifestBadFlags", err)
+	}
+}

@@ -20,7 +20,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"io"
 )
 
 const (
@@ -78,9 +77,9 @@ func EncodeBlockHeader(blockHash [32]byte, hashKey, seqNum uint64, header80 []by
 //
 // The caller must not modify or reuse buf while the returned Frame is in scope.
 //
-// Possible errors: [ErrTooShort], [ErrBadMagic], [ErrBadVer],
-// [ErrBadBlockHeaderLen], or [io.ErrUnexpectedEOF] if the datagram is shorter
-// than [BlockHeaderFrameSize].
+// Possible errors: [ErrTooShort] (any datagram shorter than the fixed
+// [BlockHeaderFrameSize] — BRC-135 §Error Handling), [ErrBadMagic],
+// [ErrBadVer], or [ErrBadBlockHeaderLen].
 func DecodeBlockHeader(buf []byte) (*Frame, error) {
 	if len(buf) < HeaderSizeLegacy {
 		return nil, ErrTooShort
@@ -99,7 +98,9 @@ func DecodeBlockHeader(buf []byte) (*Frame, error) {
 		return nil, fmt.Errorf("%w: got %d", ErrBadBlockHeaderLen, payLen)
 	}
 	if len(buf) < BlockHeaderFrameSize {
-		return nil, io.ErrUnexpectedEOF
+		// BRC-135 is fixed-size: a short datagram is short, not truncated
+		// relative to a declared length. §Error Handling names ErrTooShort.
+		return nil, ErrTooShort
 	}
 	f := &Frame{Version: FrameVerV7}
 	copy(f.TxID[:], buf[8:40]) // BlockHash carried in the TxID slot

@@ -131,6 +131,17 @@ func (r *Registry) Upsert(src netip.Addr, m *frame.ShardManifest) *Entry {
 		}
 	}
 
+	// BRC-139 §Consumer profile: an entry expires at Epoch + TTL — the
+	// ANNOUNCER's timestamp, not ours. Dating the window from receipt
+	// silently extends a stale manifest by however long it spent in flight
+	// (or queued behind a restart), which is exactly the window the epoch
+	// exists to close. Epoch = 0 means the announcer stamped no time, so
+	// receipt is the only clock available.
+	expiresAt := now.Add(ttl)
+	if m.Epoch != 0 {
+		expiresAt = time.Unix(int64(m.Epoch), 0).Add(ttl)
+	}
+
 	e := &Entry{
 		SrcIPv6:          k.src,
 		InstanceID:       m.InstanceID,
@@ -146,7 +157,7 @@ func (r *Registry) Upsert(src netip.Addr, m *frame.ShardManifest) *Entry {
 		Successor:        m.Successor,
 		Domains:          m.Domains,
 		receivedAt:       now,
-		expiresAt:        now.Add(ttl),
+		expiresAt:        expiresAt,
 	}
 	r.entries[k] = e
 	return e
@@ -218,13 +229,28 @@ func dedupSources(in [][16]byte) []netip.Addr {
 // expandGroups returns the list of joined-group indices declared by m,
 // derived from either list form (m.Groups) or bitmap form (m.Bitmap).
 // Returns nil when GroupsValid=0 or when the payload is empty.
+//
+// Indices at or beyond 2^ShardBits are DROPPED. BRC-139 §Groups payload
+// requires bits at positions ≥ 2^ShardBits to be zero and MUST be ignored by
+// consumers; the same bound applies to the list form, which addresses the
+// same index space. An out-of-range index is not merely noise — auto-join
+// turns it into a join of a group address outside the announced plane, which
+// no publisher sends to and which the pilot never meant to name.
 func expandGroups(m *frame.ShardManifest) []uint16 {
 	if m.Flags&frame.ShardManifestFlagGroupsValid == 0 {
 		return nil
 	}
+	limit := uint32(1) << m.ShardBits
 	if len(m.Groups) > 0 {
-		out := make([]uint16, len(m.Groups))
-		copy(out, m.Groups)
+		out := make([]uint16, 0, len(m.Groups))
+		for _, g := range m.Groups {
+			if uint32(g) < limit {
+				out = append(out, g)
+			}
+		}
+		if len(out) == 0 {
+			return nil
+		}
 		return out
 	}
 	if len(m.Bitmap) == 0 {
@@ -236,10 +262,16 @@ func expandGroups(m *frame.ShardManifest) []uint16 {
 			continue
 		}
 		for bit := 0; bit < 8; bit++ {
-			if b&(1<<bit) != 0 {
-				out = append(out, uint16(i*8+bit))
+			if b&(1<<bit) == 0 {
+				continue
+			}
+			if idx := uint32(i*8 + bit); idx < limit {
+				out = append(out, uint16(idx))
 			}
 		}
+	}
+	if len(out) == 0 {
+		return nil
 	}
 	return out
 }

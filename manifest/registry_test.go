@@ -141,3 +141,89 @@ func TestRegistry_SourcesDeduped(t *testing.T) {
 		t.Errorf("Sources len = %d, want 1 after dedup", len(e.Sources))
 	}
 }
+
+func TestRegistry_ExpiryDatedFromEpoch(t *testing.T) {
+	// BRC-139: an entry expires at Epoch + TTL. The manifest below was
+	// generated 50 s before it was received, so 10 s of its 60 s window
+	// remain — receipt-dated expiry would have given it 60 more.
+	epoch := int64(1746800000)
+	clock := time.Unix(epoch+50, 0)
+	r := NewRegistry(0)
+	r.Clock = func() time.Time { return clock }
+
+	m := authoritativeManifest(1, 8, []uint16{0})
+	m.Epoch = uint32(epoch)
+	m.TTL = 60
+	r.Upsert(mustAddr("fd20::1"), m)
+
+	clock = time.Unix(epoch+59, 0)
+	r.Evict()
+	if r.Len() != 1 {
+		t.Fatalf("evicted before Epoch+TTL; Len = %d", r.Len())
+	}
+
+	clock = time.Unix(epoch+60, 0)
+	r.Evict()
+	if r.Len() != 0 {
+		t.Errorf("still held at Epoch+TTL; Len = %d", r.Len())
+	}
+}
+
+func TestRegistry_ExpiryFallsBackToReceiptWhenEpochZero(t *testing.T) {
+	clock := time.Unix(1746800000, 0)
+	r := NewRegistry(0)
+	r.Clock = func() time.Time { return clock }
+
+	m := authoritativeManifest(1, 8, []uint16{0})
+	m.Epoch = 0
+	m.TTL = 60
+	r.Upsert(mustAddr("fd20::1"), m)
+
+	clock = clock.Add(59 * time.Second)
+	r.Evict()
+	if r.Len() != 1 {
+		t.Fatalf("evicted before receipt+TTL; Len = %d", r.Len())
+	}
+	clock = clock.Add(1 * time.Second)
+	r.Evict()
+	if r.Len() != 0 {
+		t.Errorf("still held at receipt+TTL; Len = %d", r.Len())
+	}
+}
+
+func TestRegistry_BitmapIgnoresIndicesOutsidePlane(t *testing.T) {
+	r := NewRegistry(60 * time.Second)
+	m := &frame.ShardManifest{
+		Flags:            frame.ShardManifestFlagAuthoritative | frame.ShardManifestFlagGroupsValid,
+		InstanceID:       1,
+		Epoch:            1746800000,
+		AnnounceInterval: 300,
+		ShardBits:        2,                              // plane is groups 0..3
+		Bitmap:           []byte{0b00100011, 0b00000001}, // bits 0,1,5,8
+	}
+	e := r.Upsert(mustAddr("fd20::1"), m)
+	want := []uint16{0, 1}
+	if len(e.Groups) != len(want) {
+		t.Fatalf("Groups = %v, want %v", e.Groups, want)
+	}
+	for i, g := range want {
+		if e.Groups[i] != g {
+			t.Errorf("Groups[%d] = %d, want %d", i, e.Groups[i], g)
+		}
+	}
+}
+
+func TestRegistry_ListIgnoresIndicesOutsidePlane(t *testing.T) {
+	r := NewRegistry(60 * time.Second)
+	m := authoritativeManifest(1, 3, []uint16{1, 7, 8, 4096}) // plane is 0..7
+	e := r.Upsert(mustAddr("fd20::1"), m)
+	want := []uint16{1, 7}
+	if len(e.Groups) != len(want) {
+		t.Fatalf("Groups = %v, want %v", e.Groups, want)
+	}
+	for i, g := range want {
+		if e.Groups[i] != g {
+			t.Errorf("Groups[%d] = %d, want %d", i, e.Groups[i], g)
+		}
+	}
+}

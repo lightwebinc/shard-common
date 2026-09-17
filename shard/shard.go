@@ -6,8 +6,9 @@
 // The derivation is pure arithmetic: no allocation, no locks, safe for
 // concurrent use by multiple goroutines without synchronisation.
 //
-// Given a 256-bit txid and a configured bit width N (1–12), the group index
-// is the top N bits of the first 32-bit word of the txid:
+// Given a 256-bit key (a txid on the transaction plane, a TopicID on a
+// BRC-148 object plane) and a configured bit width N, the group index is the
+// top N bits of the first 32-bit word of the key:
 //
 //	groupIndex = (txid[0:4] as uint32) >> (32 - N)
 //
@@ -31,7 +32,16 @@
 //
 // The 16-bit index space is divided into three zones (see BRC-129):
 // shard groups 0x0000–0x0FFF, free space 0x1000–0xF7FF, network services
-// 0xF800–0xFFFF. shardBits is therefore bounded at 12.
+// 0xF800–0xFFFF. The TRANSACTION plane (domain 0x0) is therefore bounded at
+// N = 12, and its binaries enforce N in [1, 12].
+//
+// A BRC-148 object plane lives in the free space at its own domain base and
+// takes N in [0, 15] — see [ValidatePlane] and plane.go. N = 0 is the
+// ratified BEEF-plane default: a single group per plane (every key maps to
+// the plane base), the low-membership posture that trades fabric selectivity
+// for minimal group-membership and MFC state. The deployed binaries
+// currently cap -beef-shard-bits at 12 (SlotSpan 1); widening past that is a
+// spec-supported follow-up that must move every component at once.
 package shard
 
 import (
@@ -60,7 +70,11 @@ type Engine struct {
 //   - groupID is the 16-bit IANA group-id occupying bytes 12-13 of the
 //     address (default [DefaultGroupID] = 0x000B for Bitcoin).
 //   - shardBits is the number of bits from the txid prefix that form the
-//     group key. Must be in [1, 12].
+//     group key. The transaction plane (domain 0x0) is bounded at 12 by
+//     BRC-129's 0x0000–0x0FFF zoning; a BRC-148 object plane accepts
+//     [0, 15], with 0 the ratified single-group default (every key maps to
+//     the plane base). New does not validate — [ValidatePlane] is the
+//     validator, and each binary's own flag parser applies its deployed cap.
 func New(mcPrefix uint16, groupID uint16, shardBits uint) *Engine {
 	return &Engine{
 		mcPrefix:  mcPrefix,

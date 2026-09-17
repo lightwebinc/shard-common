@@ -37,8 +37,9 @@ const (
 	// pilot/assignment broadcast: the announcer is not itself joined to the
 	// announced groups and the groups payload describes desired fleet state,
 	// not its own joins. Implies Authoritative=1; per BRC-139 consumers MUST
-	// reject PilotOnly=1 && Authoritative=0 as malformed (this decoder does
-	// not enforce the rejection — it is the consumer's responsibility).
+	// reject PilotOnly=1 && Authoritative=0 as malformed, which
+	// [DecodeShardManifest] enforces with [ErrShardManifestBadFlags] (the
+	// encoder rejects the same combination).
 	ShardManifestFlagPilotOnly byte = 1 << 5
 
 	// ShardManifestFlagSuccessorValid indicates the trailing payload includes
@@ -55,6 +56,18 @@ const (
 	// Version field instead of new top-level flags.
 	ShardManifestFlagDomainsValid byte = 1 << 7
 )
+
+// validateFlags enforces the BRC-139 §Flags implication rules that hold for
+// every manifest regardless of payload. PilotOnly=1 with Authoritative=0 is
+// malformed: a pilot broadcast describes DESIRED fleet state, so a consumer
+// that adopted one from a non-authoritative announcer would take assignment
+// orders from any host on the beacon group.
+func validateFlags(flags byte) error {
+	if flags&ShardManifestFlagPilotOnly != 0 && flags&ShardManifestFlagAuthoritative == 0 {
+		return fmt.Errorf("%w: PilotOnly=1 requires Authoritative=1", ErrShardManifestBadFlags)
+	}
+	return nil
+}
 
 // SuccessorBlockSize is the fixed size of the BRC-139 Successor block.
 const SuccessorBlockSize = 24
@@ -197,6 +210,12 @@ var (
 	// not Authoritative, or the successor's ShardBits differs from the
 	// announcer's by more than ±1.
 	ErrShardManifestBadSuccessor = errors.New("shard_manifest: invalid successor block")
+
+	// ErrShardManifestBadFlags is returned when the Flags byte violates a
+	// BRC-139 implication rule: currently PilotOnly=1 with Authoritative=0,
+	// which BRC-139 §Flags declares malformed (PilotOnly implies
+	// Authoritative).
+	ErrShardManifestBadFlags = errors.New("shard_manifest: invalid flag combination")
 
 	// ErrShardManifestBadDomains is returned when the BRC-148 Domains section
 	// fails validation: DomainsValid/section coherence, DomainCount out of
@@ -407,6 +426,10 @@ func EncodeShardManifest(m *ShardManifest, buf []byte) (int, error) {
 		return 0, fmt.Errorf("%w: sources list exceeds 65535 entries", ErrShardManifestBadSources)
 	}
 
+	if err := validateFlags(m.Flags); err != nil {
+		return 0, err
+	}
+
 	successorValid := m.Flags&ShardManifestFlagSuccessorValid != 0
 	hasSuccessor := m.Successor != nil
 	if successorValid && !hasSuccessor {
@@ -594,6 +617,10 @@ func DecodeShardManifest(buf []byte) (*ShardManifest, error) {
 		return nil, fmt.Errorf("%w: SourcesValid=1 but SourceCount=0", ErrShardManifestBadSources)
 	case !sourcesValid && sourceCount > 0:
 		return nil, fmt.Errorf("%w: SourcesValid=0 but SourceCount>0", ErrShardManifestBadSources)
+	}
+
+	if err := validateFlags(m.Flags); err != nil {
+		return nil, err
 	}
 
 	successorValid := m.Flags&ShardManifestFlagSuccessorValid != 0

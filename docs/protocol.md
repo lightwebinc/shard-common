@@ -101,7 +101,11 @@ Codec summary (`frame.DecodeBEEF` + `objfmt` records; FrameVer `0x09`,
 - Header fields: `ContentID` (SHA-256d of the object) at offset 8, `HashKey`
   at 40, `SeqNum` at 48, `TopicID` (SHA-256 of the topic name) at 56,
   `PayloadLen` at 88. The BEEF encoding version is the payload's first four
-  bytes, not duplicated in the header.
+  bytes, not duplicated in the header. That word must be one of the three
+  markers in the BRC-149 version-word table — `0100BEEF` (BRC-62),
+  `0200BEEF` (BRC-96), `01010101` (BRC-95 Atomic); the table is closed, so
+  `objfmt.IsBEEFObject` rejects any other word, including unallocated ones
+  in the `0xEFBExxxx` range.
 - **Submission record** (up; leading `0xBEEF` tag — the third grammar on the
   tx port): `u16 tag ∥ u8 recordVer ∥ u8 topicCount ∥ topics ∥ u32 objectLen
   ∥ object`; ingress expands one record into one `0x09` frame per topic. The
@@ -137,7 +141,11 @@ groupIndex = (txid[0:4] as uint32 BE) >> (32 - shardBits)
 ```
 
 where `shardBits` is the configured `-shard-bits` value (default 2, range
-1–12 — BRC-129 zoning: shard indices `0x0000`–`0x0FFF`). The group index maps
+1–12 — BRC-129 zoning: shard indices `0x0000`–`0x0FFF`). A BRC-148 object
+plane is the same arithmetic over its own key at its own width, which
+`shard.ValidatePlane` bounds at `[0, 15]` with `0` — a single group for the
+whole plane — the ratified BEEF-plane default; the shipping binaries cap
+`-beef-shard-bits` at 12. The group index maps
 to an IPv6 multicast address `[FFsc::groupIndex]`, where `sc` is the
 two-nibble scope code (e.g. `FF05` for site-local); the IANA group-id occupies
 bytes 12–13 (default `0x000B` = IANA Bitcoin allocation `FF0X::B`) and the

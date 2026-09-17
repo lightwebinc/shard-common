@@ -41,9 +41,6 @@ const (
 	// AtomicBEEFMarker is the BRC-95 Atomic BEEF 4-byte prefix (01 01 01 01),
 	// read as uint32 LE like the BEEF version words.
 	AtomicBEEFMarker uint32 = 0x01010101
-	// beefMarkerHi is the fixed high half of the BEEF-family version-word
-	// range: values 0xEFBE0001–0xEFBEFFFF keep the "BEEF" marker (BRC-62).
-	beefMarkerHi uint32 = 0xEFBE0000
 )
 
 // Submission record wire constants.
@@ -73,19 +70,18 @@ func BEEFVersionWord(obj []byte) (word uint32, ok bool) {
 	return binary.LittleEndian.Uint32(obj[0:4]), true
 }
 
-// IsBEEFObject reports whether obj leads with a recognised BEEF-family
-// marker: a BEEF version word in the BRC-62 marker range (0xEFBE0001–
-// 0xEFBEFFFF, covering BEEF and BEEF V2) or the BRC-95 Atomic BEEF prefix.
-// It is a fixed-offset sanity gate only — no structure is parsed.
+// IsBEEFObject reports whether obj leads with a marker from the BRC-149
+// version-word table: [BEEFMarkerV1] (BRC-62), [BEEFMarkerV2] (BRC-96), or
+// [AtomicBEEFMarker] (BRC-95). The table is closed — BRC-149 requires a
+// record whose object does not lead with one of these markers to be
+// rejected — so an unallocated word in the 0xEFBExxxx range is NOT a BEEF
+// object. It is a fixed-offset sanity gate only: no structure is parsed.
 func IsBEEFObject(obj []byte) bool {
 	w, ok := BEEFVersionWord(obj)
 	if !ok {
 		return false
 	}
-	if w == AtomicBEEFMarker {
-		return true
-	}
-	return w&0xFFFF0000 == beefMarkerHi && w&0xFFFF != 0
+	return w == BEEFMarkerV1 || w == BEEFMarkerV2 || w == AtomicBEEFMarker
 }
 
 // TopicID returns SHA-256 of the UTF-8 topic name — the BRC-148 topic
