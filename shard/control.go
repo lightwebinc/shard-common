@@ -36,10 +36,10 @@ const (
 	GroupBeacon GroupIdx = 0xFFFD
 
 	// GroupBlockBroadcast is the control channel for producer-broadcast
-	// block data: BRC-131 block announces, BRC-133 coinbase frames, and
-	// BRC-134 anchor frames. Derived at the configured scope like every
-	// other control group; BRC-129 names global (FF0E) as the inter-domain
-	// deployment posture.
+	// block data: BRC-131 block announces, BRC-133 coinbase frames
+	// (deprecated; see GroupCoinbaseFlow), and BRC-134 anchor frames.
+	// Derived at the configured scope like every other control group;
+	// BRC-129 names global (FF0E) as the inter-domain deployment posture.
 	GroupBlockBroadcast GroupIdx = 0xFFFE
 )
 
@@ -55,6 +55,14 @@ const (
 	// GroupCoinbaseFlow is the virtual index for BRC-133 coinbase
 	// HashKey derivation. Coinbase frames egress to GroupBlockBroadcast
 	// but must not share a SeqNum counter with BRC-131 block announces.
+	//
+	// Standalone coinbase carriage (BRC-131 MsgType 0x02, BRC-133) is
+	// deprecated and is not produced by current implementations; the
+	// coinbase travels inline in the BRC-144 block body, and the listener's
+	// block-control gate drops a standalone coinbase frame by default. The
+	// index is retained deliberately for a possible future design that
+	// carries blocks and their coinbase separately on the fabric and
+	// recombines them at the edges, and must not be reused.
 	GroupCoinbaseFlow GroupIdx = 0xFFF8
 
 	// GroupAnchorFlow is the virtual index for BRC-134 anchor HashKey

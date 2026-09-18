@@ -179,7 +179,18 @@ const (
 	BlockMsgAnnounce byte = 0x01
 
 	// BlockMsgCoinbase identifies a CoinbaseTx payload in a FrameVerV4 frame.
-	// The payload carries the raw serialised coinbase transaction.
+	// The payload carries the raw serialised coinbase transaction (BRC-133).
+	//
+	// Standalone coinbase carriage is deprecated and is not produced by
+	// current implementations. A coinbase is invalid to a node unless it is
+	// connected to its block, so the coinbase travels inline in the BRC-144
+	// block body, and the listener's block-control gate (on by default)
+	// drops a standalone coinbase frame with reason "coinbase_legacy". The
+	// value is retained deliberately so a future design can carry blocks and
+	// their coinbase separately on the fabric and recombine them at the
+	// edges; 0x02 stays reserved for that purpose and must not be reused. It
+	// carries no formal Go deprecation marker because receivers must still
+	// decode and gate this value.
 	BlockMsgCoinbase byte = 0x02
 
 	// SubtreeMsgHashesOnly identifies a hashes-only subtree data payload in a

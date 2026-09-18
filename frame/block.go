@@ -1,8 +1,9 @@
 // BRC-131 block control frame encode/decode.
 //
 // A FrameVer 0x04 frame uses the same 92-byte header layout as BRC-124 but
-// carries block control payloads (BlockAnnounce or CoinbaseTx) on the
-// GroupBlockBroadcast multicast channel (FF0E::B:FFFE).
+// carries block control payloads (BlockAnnounce, or the deprecated standalone
+// CoinbaseTx; see [BlockMsgCoinbase]) on the GroupBlockBroadcast multicast
+// channel (FF0E::B:FFFE).
 
 package frame
 

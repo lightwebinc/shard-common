@@ -250,7 +250,7 @@ sources are global/ULA `/128`s). Codec: `shard-common/teewire`
 | `FrameVerV1` | `0x01` | Legacy BRC-12; accepted, forwarded verbatim |
 | `FrameVerV2` | `0x02` | BRC-124/BRC-128 transaction frames |
 | `FrameVerV3` | `0x03` | BRC-130 fragment frames (104-byte header) |
-| `FrameVerV4` | `0x04` | BRC-131 block control frames |
+| `FrameVerV4` | `0x04` | BRC-131 block control frames (`BlockMsgAnnounce` `0x01`; `BlockMsgCoinbase` `0x02` is deprecated and reserved, see BRC-133) |
 | `FrameVerV5` | `0x05` | BRC-132 subtree data frames |
 | `FrameVerV6` | `0x06` | BRC-134 chained anchor transaction frames |
 | `FrameVerV7` | `0x07` | BRC-135 block header frames (emitter-originated) |
@@ -269,13 +269,13 @@ sources are global/ULA `/128`s). Codec: `shard-common/teewire`
 | `ShardManifestHeaderSize` | `64` | BRC-139 fixed header size; total = header + payload |
 | `SuccessorBlockSize` | `24` | BRC-139 Successor block (after the sources payload) |
 | `DomainDescriptorSize` | `24` | BRC-148 Domain Descriptor core; `MaxDomainDescriptors` = 15, `MaxDomainID` = `0x0E` |
-| `GroupCoinbaseFlow` | `0xFFF8` | **Virtual** index: BRC-133 coinbase HashKey derivation only (egress is `GroupBlockBroadcast`) |
+| `GroupCoinbaseFlow` | `0xFFF8` | **Virtual** index: BRC-133 coinbase HashKey derivation only (egress is `GroupBlockBroadcast`). Deprecated and reserved: standalone coinbase frames are not produced (the coinbase is inline in the BRC-144 block body) and the listener's block-control gate drops them by default (`coinbase_legacy`); kept for a possible split block/coinbase carriage, never reused |
 | `GroupAnchorFlow` | `0xFFF9` | **Virtual** index: BRC-134 anchor HashKey derivation only (egress is `GroupBlockBroadcast`) |
 | `GroupBlockHeader` | `0xFFFA` | Block header egress channel (BRC-135) |
 | `GroupSubtreeDataAnnounce` | `0xFFFB` | Control-plane subtree data group |
 | `GroupSubtreeGroupAnnounce` | `0xFFFC` | Control-plane subtree announce group |
 | `GroupBeacon` | `0xFFFD` | Control-plane group: BRC-126 ADVERT beacons and BRC-139 shard manifests (site/org/global scopes) |
-| `GroupBlockBroadcast` | `0xFFFE` | BRC-131 block announce + BRC-133 coinbase + BRC-134 anchor channel (configured scope; BRC-129 names global FF0E as the inter-domain posture) |
+| `GroupBlockBroadcast` | `0xFFFE` | BRC-131 block announce + BRC-133 coinbase (deprecated) + BRC-134 anchor channel (configured scope; BRC-129 names global FF0E as the inter-domain posture) |
 | `DefaultGroupID` | `0x000B` | IANA Bitcoin multicast group-id (`FF0X::B`) |
 
 ## 10. Source-Specific Multicast (RFC 4607)
