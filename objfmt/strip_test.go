@@ -85,3 +85,19 @@ func TestStripBadInput(t *testing.T) {
 		t.Fatal("want error on bad-magic block frame")
 	}
 }
+
+// TestStripRejectsDeliveryClasses pins that the two delivery-side classes have
+// no down-direction inverse: they ARE the delivery form. The refusal must come
+// from the class, not from the bytes, so this feeds a well-formed frame and
+// still expects ErrClassNotRegistered.
+func TestStripRejectsDeliveryClasses(t *testing.T) {
+	good, err := BEEFMulticastBytes(TopicID("tm_a"), beefObj)
+	if err != nil {
+		t.Fatalf("build frame: %v", err)
+	}
+	for _, c := range []Class{ClassBEEFDelivery, ClassBlockHeader} {
+		if _, err := StripBytes(c, good); !errors.Is(err, ErrClassNotRegistered) {
+			t.Errorf("StripBytes(%v): %v, want ErrClassNotRegistered", c, err)
+		}
+	}
+}

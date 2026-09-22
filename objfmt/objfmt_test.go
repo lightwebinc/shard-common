@@ -264,6 +264,145 @@ func TestClassDispatch(t *testing.T) {
 	if ClassTx.String() != "tx" || ClassSubtree.String() != "subtree" || ClassBlock.String() != "block" {
 		t.Fatal("Class.String labels wrong")
 	}
+	// The delivery-side classes are registered for Size the same way.
+	if _, err := Size(ClassBEEFDelivery, []byte{0}); !errors.Is(err, ErrShort) {
+		t.Fatalf("beef delivery short: %v, want ErrShort", err)
+	}
+	if _, err := Size(ClassBlockHeader, []byte{0}); !errors.Is(err, ErrShort) {
+		t.Fatalf("block header short: %v, want ErrShort", err)
+	}
+	// ...and refused on every up-direction seam: they are delivery-only.
+	for _, c := range []Class{ClassBEEFDelivery, ClassBlockHeader} {
+		if _, err := MulticastFrame(c, []byte{0}); !errors.Is(err, ErrClassNotRegistered) {
+			t.Fatalf("MulticastFrame %v: %v, want ErrClassNotRegistered", c, err)
+		}
+		if _, err := MulticastBytes(c, []byte{0}); !errors.Is(err, ErrClassNotRegistered) {
+			t.Fatalf("MulticastBytes %v: %v, want ErrClassNotRegistered", c, err)
+		}
+	}
+	// String names the LANE, so the two BEEF directions deliberately share one
+	// label. The fleet's `lane` and `class` labels must be the same string:
+	// billing reconciliation rewrites one into the other and joins on it, and a
+	// class with no matching lane drops out of that join silently.
+	if ClassBEEF.String() != "beef" || ClassBEEFDelivery.String() != "beef" {
+		t.Fatal("both BEEF directions must label the beef lane")
+	}
+	if ClassBlockHeader.String() != "header" {
+		t.Fatal("ClassBlockHeader must label the header lane")
+	}
+	// An unregistered value still reports "unknown"; Class(0) stays the
+	// no-class sentinel, which depends on the iota block starting at 1.
+	if Class(0).String() != "unknown" || ClassBlockHeader+1 != Class(0)+7 {
+		t.Fatal("class numbering moved; Class(0) must stay the none sentinel")
+	}
+}
+
+func TestBlockHeaderSize(t *testing.T) {
+	hdr := bytes.Repeat([]byte{0x11}, 80)
+	n, err := BlockHeaderSize(hdr)
+	if err != nil || n != 80 {
+		t.Fatalf("exact: %d,%v want 80,nil", n, err)
+	}
+	// One byte short is ErrShort, never ErrMalformed: a fixed-size class has no
+	// malformed form. Every strict prefix must say "need more bytes".
+	for cut := 0; cut < 80; cut++ {
+		if _, err := BlockHeaderSize(hdr[:cut]); !errors.Is(err, ErrShort) {
+			t.Fatalf("prefix %d: %v want ErrShort", cut, err)
+		}
+	}
+	if _, err := BlockHeaderSize(nil); !errors.Is(err, ErrShort) {
+		t.Fatalf("nil: %v want ErrShort", err)
+	}
+	// Trailing bytes: Size reports only the first object's length.
+	n, err = BlockHeaderSize(append(append([]byte{}, hdr...), 0xAA, 0xBB))
+	if err != nil || n != 80 {
+		t.Fatalf("trailing: %d,%v want 80,nil", n, err)
+	}
+	// The class validates nothing, deliberately: any 80 bytes are an object
+	// here. That is why a header lane cannot detect desync from the codec.
+	for _, fill := range [][]byte{bytes.Repeat([]byte{0x00}, 80), bytes.Repeat([]byte{0xFF}, 80)} {
+		if n, err := BlockHeaderSize(fill); err != nil || n != 80 {
+			t.Fatalf("degenerate fill: %d,%v want 80,nil", n, err)
+		}
+	}
+}
+
+func TestReaderSplitsBlockHeaders(t *testing.T) {
+	var stream []byte
+	want := make([][]byte, 3)
+	for i := range want {
+		want[i] = bytes.Repeat([]byte{byte(i + 1)}, 80)
+		stream = append(stream, want[i]...)
+	}
+	for _, chunk := range []int{1, 3, 80, 240} {
+		rd := NewReader(&fragmentedReader{data: stream, chunk: chunk}, ClassBlockHeader)
+		for i := range want {
+			got, err := rd.Next()
+			if err != nil {
+				t.Fatalf("chunk %d obj %d: %v", chunk, i, err)
+			}
+			if !bytes.Equal(got, want[i]) {
+				t.Fatalf("chunk %d obj %d mismatch", chunk, i)
+			}
+		}
+		if _, err := rd.Next(); !errors.Is(err, io.EOF) {
+			t.Fatalf("chunk %d tail: %v want io.EOF", chunk, err)
+		}
+	}
+	// A truncated final header is an unexpected EOF, not a silent short object.
+	rd := NewReader(&fragmentedReader{data: stream[:len(stream)-1], chunk: 7}, ClassBlockHeader)
+	for i := 0; i < 2; i++ {
+		if _, err := rd.Next(); err != nil {
+			t.Fatalf("pre-truncation obj %d: %v", i, err)
+		}
+	}
+	if _, err := rd.Next(); !errors.Is(err, io.ErrUnexpectedEOF) {
+		t.Fatalf("truncated: %v want io.ErrUnexpectedEOF", err)
+	}
+}
+
+// TestReaderBlockHeaderMaxObject pins what the reader's object bound actually
+// does for a fixed-size class, which is not what "maximum object size"
+// suggests. [Reader.Next] consults the bound ONLY after [Size] has said
+// ErrShort, so the bound limits how many bytes may accumulate without a
+// boundary; it is not a per-object size check. An object that arrives whole is
+// returned whatever the bound says. The per-object check belongs to the lane
+// terminator, not here.
+//
+// For a fixed-80 class that gives a floor to respect, not a ceiling to tune:
+// set the bound to at least 80 or the lane breaks on its first header, and
+// only when the stream is fragmented enough to expose it.
+func TestReaderBlockHeaderMaxObject(t *testing.T) {
+	hdr := bytes.Repeat([]byte{0x22}, 80)
+	two := append(append([]byte{}, hdr...), hdr...)
+
+	// At exactly 80 it streams, whole or fragmented.
+	for _, chunk := range []int{1, 80, 160} {
+		rd := NewReader(&fragmentedReader{data: two, chunk: chunk}, ClassBlockHeader)
+		rd.SetMaxObject(80)
+		for i := 0; i < 2; i++ {
+			if got, err := rd.Next(); err != nil || !bytes.Equal(got, hdr) {
+				t.Fatalf("max=80 chunk %d obj %d: %v", chunk, i, err)
+			}
+		}
+	}
+
+	// Below 80, a fragmented stream trips the bound at the 79-byte window,
+	// before Size can ever succeed. This is the misconfiguration case.
+	rd := NewReader(&fragmentedReader{data: two, chunk: 1}, ClassBlockHeader)
+	rd.SetMaxObject(79)
+	if _, err := rd.Next(); !errors.Is(err, ErrObjectTooLarge) {
+		t.Fatalf("max=79 fragmented: %v want ErrObjectTooLarge", err)
+	}
+
+	// But the same undersized bound is NOT enforced when the header arrives in
+	// one read: Size succeeds on the full window and the bound is never
+	// consulted. Pinned deliberately so nobody reads MaxObject as a size gate.
+	rd = NewReader(bytes.NewReader(hdr), ClassBlockHeader)
+	rd.SetMaxObject(79)
+	if got, err := rd.Next(); err != nil || !bytes.Equal(got, hdr) {
+		t.Fatalf("max=79 whole read: %v, want the object through", err)
+	}
 }
 
 // buildSubtree assembles a BRC-143 subtree push frame: 32B root + uint64 count

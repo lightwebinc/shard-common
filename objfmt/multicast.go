@@ -46,7 +46,10 @@ func MulticastFrame(c Class, obj []byte) (*frame.Frame, error) {
 //
 // The frame is unstamped; the proxy stamps HashKey/SeqNum from the observed
 // source. Returns [ErrShort]/[ErrMalformed] for a bad object, or
-// [ErrClassNotRegistered] for an unknown class.
+// [ErrClassNotRegistered] for a class with no up-direction wrap: ClassBEEF
+// (which expands through [BEEFMulticastBytes], one frame per topic, so this
+// strictly 1:1 seam cannot serve it) and the delivery-only classes
+// ClassBEEFDelivery and ClassBlockHeader (which have no up direction at all).
 func MulticastBytes(c Class, obj []byte) ([]byte, error) {
 	switch c {
 	case ClassTx:

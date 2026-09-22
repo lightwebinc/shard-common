@@ -25,6 +25,12 @@ import (
 //     up-direction inverse is [BEEFMulticastBytes] via the submission-record
 //     expansion, not [MulticastBytes].
 //
+// ClassBEEFDelivery and ClassBlockHeader are NOT strippable and return
+// [ErrClassNotRegistered]: they are already the bare delivery form, produced
+// directly by the edge (EncodeBEEFDelivery, and the 80-byte payload of the
+// BRC-135 FrameVer 0x07 frame) rather than stripped from a multicast frame.
+// There is nothing to invert.
+//
 // The returned buffer is freshly allocated and independent of mcast.
 func StripBytes(c Class, mcast []byte) ([]byte, error) {
 	switch c {

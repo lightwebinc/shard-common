@@ -14,11 +14,20 @@
 //     locktime). A BRC-12/30 stream is byte-for-byte the transactions.
 //   - ClassSubtree — BRC-143 subtree push frame; delimited by NodeCount.
 //   - ClassBlock — BRC-144 block push frame; delimited by its counts.
+//   - ClassBEEFDelivery — BRC-149 delivery record; delimited by its own u32BE
+//     object length.
+//   - ClassBlockHeader — a bare 80-byte BSV block header; fixed size.
 //
-// All four classes are registered: ClassTx wraps to BRC-124/128, ClassSubtree
-// to BRC-132, and ClassBlock to the fabric block frame (the BRC-144 body
-// carried verbatim) — see [MulticastBytes]. ClassBEEF is admitted via the
-// proxy's SubmitBEEF submission-record expansion, not [MulticastBytes].
+// Three classes wrap to a multicast frame: ClassTx to BRC-124/128,
+// ClassSubtree to BRC-132, and ClassBlock to the fabric block frame (the
+// BRC-144 body carried verbatim) — see [MulticastBytes]. ClassBEEF is admitted
+// via the proxy's SubmitBEEF submission-record expansion, not [MulticastBytes].
+//
+// ClassBEEFDelivery and ClassBlockHeader are DELIVERY-SIDE ONLY: they are the
+// down-direction forms an edge writes to a consumer, they have no up-direction
+// inverse, and [MulticastBytes], [MulticastFrame] and [StripBytes] all
+// correctly refuse them with [ErrClassNotRegistered]. Wiring either into an
+// up-direction seam is a bug, not a missing codec.
 //
 // # Directions
 //
@@ -50,9 +59,28 @@ const (
 	// BEEF bytes are not length-walkable, so the lane carries the explicit
 	// length-carrying record; see beef.go).
 	ClassBEEF
+	// ClassBEEFDelivery is a BRC-149 BEEF *delivery* record: the down-direction
+	// envelope an edge writes to an overlay consumer, TopicID ∥ u32BE objectLen
+	// ∥ object (see EncodeBEEFDelivery). ClassBEEF is the up direction, which
+	// names topics; this one carries the single TopicID that matched.
+	ClassBEEFDelivery
+	// ClassBlockHeader is a bare 80-byte BSV block header, the payload the
+	// BRC-135 FrameVer 0x07 header frame carries. Delivery-side only.
+	ClassBlockHeader
 )
 
-// String returns the lane name for logs and metrics labels.
+// String returns the LANE name for logs and metrics labels. It names the lane
+// a class rides, not the class itself, which is why the two BEEF classes share
+// one string: ClassBEEF (up) and ClassBEEFDelivery (down) are the two
+// directions of the one "beef" lane, and the delivery plane's vocabulary is
+// the lane's.
+//
+// These strings are not free to choose. Across the fleet the `lane` label and
+// the `class` label must be the SAME string, because billing reconciliation
+// rewrites one into the other and joins on it; a class whose string has no
+// matching lane string drops out of that join silently, with no signal that it
+// went unreconciled. "beef" and "header" are the live values in that shared
+// vocabulary, so both new classes reuse them rather than inventing a name.
 func (c Class) String() string {
 	switch c {
 	case ClassTx:
@@ -61,8 +89,10 @@ func (c Class) String() string {
 		return "subtree"
 	case ClassBlock:
 		return "block"
-	case ClassBEEF:
+	case ClassBEEF, ClassBEEFDelivery:
 		return "beef"
+	case ClassBlockHeader:
+		return "header"
 	default:
 		return "unknown"
 	}
@@ -78,8 +108,11 @@ var (
 	// class regardless of any suffix.
 	ErrMalformed = errors.New("objfmt: malformed object")
 
-	// ErrClassNotRegistered reports a class value with no registered codec
-	// (any value outside ClassTx/ClassSubtree/ClassBlock/ClassBEEF).
+	// ErrClassNotRegistered reports a class value with no registered codec for
+	// the direction being asked. Every [Class] is registered for [Size]; the
+	// delivery-only classes (ClassBEEFDelivery, ClassBlockHeader) and ClassBEEF
+	// are not registered for the up-direction seams, so [MulticastBytes],
+	// [MulticastFrame] and [StripBytes] return this for them by design.
 	ErrClassNotRegistered = errors.New("objfmt: class not registered")
 
 	// ErrObjectTooLarge reports an object exceeding the reader's configured
@@ -110,6 +143,10 @@ func Size(c Class, buf []byte) (int, error) {
 		return BlockSize(buf)
 	case ClassBEEF:
 		return BEEFRecordSize(buf)
+	case ClassBEEFDelivery:
+		return BEEFDeliverySize(buf)
+	case ClassBlockHeader:
+		return BlockHeaderSize(buf)
 	default:
 		return 0, ErrClassNotRegistered
 	}

@@ -184,6 +184,105 @@ func TestBEEFDeliveryRoundTrip(t *testing.T) {
 	if _, err := BEEFDeliverySize(rec[:10]); !errors.Is(err, ErrShort) {
 		t.Errorf("short: %v", err)
 	}
+
+	// The record is a registered class, so it dispatches through Size too.
+	if sz, err := Size(ClassBEEFDelivery, rec); err != nil || sz != len(rec) {
+		t.Fatalf("Size(ClassBEEFDelivery) = %d/%v, want %d", sz, err, len(rec))
+	}
+}
+
+func TestBEEFDeliverySizeShortAndMalformed(t *testing.T) {
+	rec := EncodeBEEFDelivery(TopicID("tm_a"), beefObj)
+
+	// Every strict prefix is ErrShort (valid-but-incomplete), never malformed.
+	for i := 1; i < len(rec); i++ {
+		if _, err := BEEFDeliverySize(rec[:i]); !errors.Is(err, ErrShort) {
+			t.Fatalf("prefix %d: err = %v, want ErrShort", i, err)
+		}
+	}
+
+	// A zero object length is the record's only malformed form: it has no tag
+	// and no version to corrupt, so every other field is just bytes.
+	bad := append([]byte(nil), rec...)
+	copy(bad[32:36], []byte{0, 0, 0, 0})
+	if _, err := BEEFDeliverySize(bad); !errors.Is(err, ErrMalformed) {
+		t.Errorf("zero object len: err = %v, want ErrMalformed", err)
+	}
+
+	// Trailing bytes: Size reports only the first record's length.
+	if n, err := BEEFDeliverySize(append(append([]byte{}, rec...), 0xAA, 0xBB)); err != nil || n != len(rec) {
+		t.Fatalf("trailing: %d,%v want %d", n, err, len(rec))
+	}
+
+	// A hostile declared length must not be sized or allocated off the wire:
+	// the largest uint32 against a 36-byte buffer is "need more bytes", not an
+	// invitation to reserve 4 GiB. The overflow arm in BEEFDeliverySize is
+	// unreachable on a 64-bit build (MaxUint32 < MaxInt-36), which is why
+	// there is no ErrMalformed case for it here.
+	huge := append([]byte(nil), rec[:36]...)
+	copy(huge[32:36], []byte{0xFF, 0xFF, 0xFF, 0xFF})
+	if _, err := BEEFDeliverySize(huge); !errors.Is(err, ErrShort) {
+		t.Errorf("declared 4 GiB: err = %v, want ErrShort", err)
+	}
+}
+
+func TestBEEFDeliveryReaderStream(t *testing.T) {
+	a := EncodeBEEFDelivery(TopicID("tm_a"), beefObj)
+	b := EncodeBEEFDelivery(TopicID("tm_b"), append(append([]byte{}, beefObj...), beefObj...))
+	stream := append(append([]byte{}, a...), b...)
+
+	// The delivery record has no self-synchronising tag, so the byte-at-a-time
+	// pass is the one that matters: it must never resync on content.
+	for _, chunk := range []int{1, 7, len(a), len(stream)} {
+		rd := NewReader(&fragmentedReader{data: stream, chunk: chunk}, ClassBEEFDelivery)
+		for i, want := range [][]byte{a, b} {
+			got, err := rd.Next()
+			if err != nil {
+				t.Fatalf("chunk %d obj %d: %v", chunk, i, err)
+			}
+			if !bytes.Equal(got, want) {
+				t.Fatalf("chunk %d obj %d mismatch", chunk, i)
+			}
+		}
+		if _, err := rd.Next(); !errors.Is(err, io.EOF) {
+			t.Fatalf("chunk %d tail: %v want io.EOF", chunk, err)
+		}
+	}
+
+	// A truncated final record is an unexpected EOF, not a short object.
+	rd := NewReader(&fragmentedReader{data: stream[:len(stream)-1], chunk: 13}, ClassBEEFDelivery)
+	if _, err := rd.Next(); err != nil {
+		t.Fatalf("first record: %v", err)
+	}
+	if _, err := rd.Next(); !errors.Is(err, io.ErrUnexpectedEOF) {
+		t.Fatalf("truncated: %v want io.ErrUnexpectedEOF", err)
+	}
+
+	// Unlike the fixed-size class, this one does reach the accumulation bound,
+	// because a declared length larger than the bound still has to arrive.
+	big := EncodeBEEFDelivery(TopicID("tm_big"), bytes.Repeat([]byte{0x01}, 8<<10))
+	rd = NewReader(&fragmentedReader{data: big, chunk: 64}, ClassBEEFDelivery)
+	rd.SetMaxObject(1024)
+	if _, err := rd.Next(); !errors.Is(err, ErrObjectTooLarge) {
+		t.Fatalf("oversize: %v want ErrObjectTooLarge", err)
+	}
+}
+
+// TestEncodeBEEFDeliveryEmptyObjectAsymmetry pins a real asymmetry rather than
+// asserting it is correct: EncodeBEEFDelivery will happily encode an empty
+// object, and BEEFDeliverySize then refuses the result as malformed, so the
+// encoder can produce a record its own decoder rejects. It is reachable,
+// because nothing upstream rejects a zero-length BEEF payload. Left as-is in
+// this change set (the encoder has live callers and returns no error), and
+// recorded here so the next reader finds it deliberate rather than unnoticed.
+func TestEncodeBEEFDeliveryEmptyObjectAsymmetry(t *testing.T) {
+	rec := EncodeBEEFDelivery(TopicID("tm_a"), nil)
+	if len(rec) != BEEFDeliveryHeaderSize {
+		t.Fatalf("encoded %d bytes, want %d", len(rec), BEEFDeliveryHeaderSize)
+	}
+	if _, err := BEEFDeliverySize(rec); !errors.Is(err, ErrMalformed) {
+		t.Fatalf("decode of empty-object record: %v, want ErrMalformed", err)
+	}
 }
 
 func TestBEEFMulticastBytesAndStrip(t *testing.T) {
