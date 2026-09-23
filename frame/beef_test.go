@@ -125,11 +125,29 @@ func TestDecodeBEEF_Errors(t *testing.T) {
 	}
 }
 
-func TestDecodeBEEF_ReservedIgnored(t *testing.T) {
+func TestDecodeBEEF_DeliverCount(t *testing.T) {
+	// Legacy zero reads as one deliverable topic; a stamped count round-trips.
 	buf := buildBEEFBuf(t, testBEEFFrame())
-	buf[7] = 0xFF // future plane-level message type: ignored on receive
-	if _, err := DecodeBEEF(buf); err != nil {
-		t.Fatalf("DecodeBEEF with nonzero reserved byte: %v", err)
+	bf, err := DecodeBEEF(buf)
+	if err != nil {
+		t.Fatalf("DecodeBEEF: %v", err)
+	}
+	if bf.DeliverCount != BEEFDeliverCountLegacy || bf.Deliverable() != 1 {
+		t.Fatalf("legacy byte 7: DeliverCount=%d Deliverable=%d, want 0/1", bf.DeliverCount, bf.Deliverable())
+	}
+
+	f := testBEEFFrame()
+	f.DeliverCount = 3
+	buf = buildBEEFBuf(t, f)
+	if buf[7] != 3 {
+		t.Fatalf("byte 7 = %d, want 3", buf[7])
+	}
+	bf, err = DecodeBEEF(buf)
+	if err != nil {
+		t.Fatalf("DecodeBEEF: %v", err)
+	}
+	if bf.Deliverable() != 3 {
+		t.Fatalf("Deliverable = %d, want 3", bf.Deliverable())
 	}
 }
 

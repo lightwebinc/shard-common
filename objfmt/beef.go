@@ -15,10 +15,14 @@
 //	u32  objectLen   BE, ≥ 1
 //	objectLen bytes  BEEF object (leading marker identifies the encoding)
 //
-// One record submits one object to one or more topics; the ingress expands it
-// into one FrameVer 0x09 frame per topic. The record's leading tag makes it
-// grammar-distinct from a framed datagram (magic 0xE3…) and a bare
-// transaction (version byte[1] is 0x00) on the shared open port.
+// One record submits one object under one or more topic names; the ingress
+// emits it as ONE FrameVer 0x09 frame whose payload is the record verbatim,
+// so every name reaches the subscriber, and whose DeliverCount says how many
+// of the leading names are deliverable (one on the open path, up to the
+// operator's cap on the authenticated path; the rest are labels). The
+// record's leading tag makes it grammar-distinct from a framed datagram
+// (magic 0xE3…), a bare transaction (version byte[1] is 0x00) on the shared
+// open port, and a bare BEEF object (leading 0x01) as a frame payload.
 
 package objfmt
 
@@ -55,10 +59,57 @@ const (
 	BEEFMaxTopicLen = 64
 	// beefRecordMin is tag + ver + topicCount.
 	beefRecordMin = 4
+	// BEEFRecordMaxEnvelope is the largest submission-record envelope the
+	// grammar allows around its object: tag, RecordVer, TopicCount, a full
+	// topic list, and ObjectLen. An object bound applies to the object; a
+	// payload carrying the record may exceed it by at most this much.
+	BEEFRecordMaxEnvelope = beefRecordMin + BEEFMaxTopics*(1+BEEFMaxTopicLen) + 4
 	// BEEFDeliveryHeaderSize is the delivery record's fixed prefix:
-	// 32-byte TopicID + 4-byte BE object length.
+	// 32-byte TopicID + 4-byte BE payload length.
 	BEEFDeliveryHeaderSize = 36
 )
+
+// SplitBEEFPayload resolves a frame payload to its object and topic names.
+// A payload leading with the record tag is a submission record and must be
+// exactly one; anything else is a bare object with no names (topics nil).
+// The marker gate ([IsBEEFObject]) is the caller's, as everywhere in objfmt.
+func SplitBEEFPayload(payload []byte) (object []byte, topics []string, err error) {
+	if len(payload) >= 2 && binary.BigEndian.Uint16(payload[0:2]) == BEEFRecordTag {
+		rec, n, err := DecodeBEEFRecord(payload)
+		if err != nil {
+			return nil, nil, err
+		}
+		if n != len(payload) {
+			return nil, nil, fmt.Errorf("%w: %d trailing bytes after record", ErrMalformed, len(payload)-n)
+		}
+		return rec.Object, rec.Topics, nil
+	}
+	return payload, nil, nil
+}
+
+// BEEFDeliverableTopicIDs returns the TopicIDs a listener may match a frame
+// on, in submission order: the header TopicID, then the record's next
+// Deliverable()-1 names hashed. A bare-object payload, a legacy frame, or a
+// count past the record's length all collapse to what the record and the
+// header can support; the header TopicID is always first.
+func BEEFDeliverableTopicIDs(bf *frame.BEEFFrame) [][32]byte {
+	ids := [][32]byte{bf.TopicID}
+	want := bf.Deliverable()
+	if want <= 1 {
+		return ids
+	}
+	_, topics, err := SplitBEEFPayload(bf.Payload)
+	if err != nil || len(topics) < 2 {
+		return ids
+	}
+	if want > len(topics) {
+		want = len(topics)
+	}
+	for _, name := range topics[1:want] {
+		ids = append(ids, TopicID(name))
+	}
+	return ids
+}
 
 // BEEFVersionWord returns the object's version word — the uint32 LE of its
 // first four bytes (the version-filter input). ok is false when the object
@@ -88,8 +139,10 @@ func IsBEEFObject(obj []byte) bool {
 // identifier and BEEF-plane shard key.
 func TopicID(name string) [32]byte { return sha256.Sum256([]byte(name)) }
 
-// ContentID returns SHA-256d (double SHA-256) of the complete object bytes —
-// the BRC-148 object identity.
+// ContentID returns SHA-256d (double SHA-256) of the complete frame payload —
+// the BRC-148 object identity. The payload is the submission record when the
+// ingress carried one (so the same object under a different label set is a
+// distinct submission) and the bare object otherwise.
 func ContentID(obj []byte) [32]byte {
 	h := sha256.Sum256(obj)
 	return sha256.Sum256(h[:])
@@ -214,8 +267,11 @@ func EncodeBEEFRecord(topics []string, object []byte) ([]byte, error) {
 }
 
 // EncodeBEEFDelivery serialises the down-direction delivery record:
-// TopicID ∥ u32 BE objectLen ∥ object. The edge knows the TopicID hash, not
-// the name; overlay consumers map it back from their own elections.
+// TopicID ∥ u32 BE payloadLen ∥ payload. TopicID is the identifier the
+// consumer's election matched; the payload is the frame payload verbatim,
+// so a consumer sees every name the publisher submitted when it was a
+// record ([SplitBEEFPayload]) and maps the matched identifier back to one of
+// them, or to its own election for a bare object.
 func EncodeBEEFDelivery(topicID [32]byte, object []byte) []byte {
 	out := make([]byte, 0, BEEFDeliveryHeaderSize+len(object))
 	out = append(out, topicID[:]...)
@@ -254,12 +310,45 @@ func DecodeBEEFDelivery(buf []byte) (topicID [32]byte, object []byte, n int, err
 	return topicID, buf[BEEFDeliveryHeaderSize:n], n, nil
 }
 
-// BEEFMulticastBytes wraps one BEEF object into a fully-encoded, unstamped
-// FrameVer 0x09 multicast frame for one topic: ContentID is computed from
-// the object bytes, TopicID is the caller's (already-hashed) topic. The
-// ingress expands a multi-topic submission by calling this once per topic —
-// which is why ClassBEEF is not registered in [MulticastBytes] (that seam is
-// strictly 1:1).
+// BEEFMulticastRecord wraps one submission record verbatim into a
+// fully-encoded, unstamped FrameVer 0x09 frame: ContentID is SHA-256d of the
+// record, TopicID is the record's first topic, and deliverCount is clamped
+// to [1, TopicCount]. This is the ingress emit shape; there is one frame per
+// record at any topic count.
+func BEEFMulticastRecord(rec []byte, deliverCount int) ([]byte, error) {
+	r, n, err := DecodeBEEFRecord(rec)
+	if err != nil {
+		return nil, err
+	}
+	if n != len(rec) {
+		return nil, fmt.Errorf("%w: %d trailing bytes after record", ErrMalformed, len(rec)-n)
+	}
+	if deliverCount < 1 {
+		deliverCount = 1
+	}
+	if deliverCount > len(r.Topics) {
+		deliverCount = len(r.Topics)
+	}
+	bf := &frame.BEEFFrame{
+		ContentID:    ContentID(rec),
+		TopicID:      TopicID(r.Topics[0]),
+		DeliverCount: uint8(deliverCount),
+		Payload:      rec,
+	}
+	buf := make([]byte, frame.HeaderSize+len(rec))
+	wn, err := frame.EncodeBEEF(bf, buf)
+	if err != nil {
+		return nil, err
+	}
+	return buf[:wn], nil
+}
+
+// BEEFMulticastBytes wraps one bare BEEF object into a fully-encoded,
+// unstamped FrameVer 0x09 frame for one topic: ContentID is computed from
+// the object bytes, TopicID is the caller's (already-hashed) topic. This is
+// the bare-object payload form; the ingress emits [BEEFMulticastRecord] so
+// names travel, and ClassBEEF is not registered in [MulticastBytes] because
+// that seam takes no topic.
 func BEEFMulticastBytes(topicID [32]byte, obj []byte) ([]byte, error) {
 	if len(obj) == 0 {
 		return nil, fmt.Errorf("%w: empty object", ErrMalformed)
@@ -277,10 +366,10 @@ func BEEFMulticastBytes(topicID [32]byte, obj []byte) ([]byte, error) {
 	return buf[:n], nil
 }
 
-// beefStrip extracts the verbatim BEEF object from a FrameVer 0x09 multicast
-// frame (the [StripBytes] down-direction for ClassBEEF). The TopicID is
-// dropped — a stripped lane consumer that needs it uses the delivery record
-// ([EncodeBEEFDelivery]) instead.
+// beefStrip extracts the verbatim payload (record or bare object) from a
+// FrameVer 0x09 multicast frame (the [StripBytes] down-direction for
+// ClassBEEF). The TopicID is dropped — a stripped lane consumer that needs
+// it uses the delivery record ([EncodeBEEFDelivery]) instead.
 func beefStrip(mcast []byte) ([]byte, error) {
 	bf, err := frame.DecodeBEEF(mcast)
 	if err != nil {

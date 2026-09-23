@@ -315,3 +315,87 @@ func TestBEEFMulticastBytesAndStrip(t *testing.T) {
 		t.Fatalf("StripBytes round-trip failed: %v", err)
 	}
 }
+
+func TestBEEFMulticastRecordCarriesNames(t *testing.T) {
+	names := []string{"tm_a", "tm_b", "tm_c", "tm_d", "tm_e"}
+	rec, err := EncodeBEEFRecord(names, beefObj)
+	if err != nil {
+		t.Fatalf("EncodeBEEFRecord: %v", err)
+	}
+
+	// Public shape: one frame, the first topic deliverable, every name inside.
+	mcast, err := BEEFMulticastRecord(rec, 1)
+	if err != nil {
+		t.Fatalf("BEEFMulticastRecord: %v", err)
+	}
+	bf, err := frame.DecodeBEEF(mcast)
+	if err != nil {
+		t.Fatalf("DecodeBEEF: %v", err)
+	}
+	if bf.TopicID != TopicID("tm_a") {
+		t.Error("TopicID is not the first topic")
+	}
+	if bf.ContentID != ContentID(rec) {
+		t.Error("ContentID must be over the record payload")
+	}
+	if !bytes.Equal(bf.Payload, rec) {
+		t.Error("payload is not the record verbatim")
+	}
+	if got := BEEFDeliverableTopicIDs(bf); len(got) != 1 || got[0] != TopicID("tm_a") {
+		t.Fatalf("deliverable = %d ids, want only tm_a", len(got))
+	}
+	obj, topics, err := SplitBEEFPayload(bf.Payload)
+	if err != nil || !bytes.Equal(obj, beefObj) || len(topics) != 5 || topics[4] != "tm_e" {
+		t.Fatalf("SplitBEEFPayload: obj ok=%v topics=%v err=%v", bytes.Equal(obj, beefObj), topics, err)
+	}
+
+	// Authenticated shape: three deliverable, the rest labels; the count is
+	// clamped to the record.
+	for _, tc := range []struct{ ask, want int }{{3, 3}, {0, 1}, {9, 5}} {
+		mcast, err := BEEFMulticastRecord(rec, tc.ask)
+		if err != nil {
+			t.Fatalf("BEEFMulticastRecord(%d): %v", tc.ask, err)
+		}
+		bf, _ := frame.DecodeBEEF(mcast)
+		ids := BEEFDeliverableTopicIDs(bf)
+		if len(ids) != tc.want {
+			t.Fatalf("deliver %d: %d ids, want %d", tc.ask, len(ids), tc.want)
+		}
+		for i, id := range ids {
+			if id != TopicID(names[i]) {
+				t.Fatalf("deliver %d: id[%d] is not %s", tc.ask, i, names[i])
+			}
+		}
+	}
+
+	// A bare-object payload with a stamped count still yields the header
+	// TopicID alone: there are no names to hash.
+	bare, _ := BEEFMulticastBytes(TopicID("tm_z"), beefObj)
+	bare[7] = 3
+	bf, _ = frame.DecodeBEEF(bare)
+	if ids := BEEFDeliverableTopicIDs(bf); len(ids) != 1 || ids[0] != TopicID("tm_z") {
+		t.Fatal("bare payload must collapse to the header TopicID")
+	}
+	obj, topics, err = SplitBEEFPayload(bf.Payload)
+	if err != nil || topics != nil || !bytes.Equal(obj, beefObj) {
+		t.Fatalf("bare SplitBEEFPayload: topics=%v err=%v", topics, err)
+	}
+
+	// Delivery record carries the payload verbatim, so names reach the consumer.
+	del := EncodeBEEFDelivery(TopicID("tm_b"), rec)
+	_, payload, _, err := DecodeBEEFDelivery(del)
+	if err != nil {
+		t.Fatalf("DecodeBEEFDelivery: %v", err)
+	}
+	if _, topics, _ := SplitBEEFPayload(payload); len(topics) != 5 {
+		t.Fatal("names did not survive the delivery record")
+	}
+
+	// Trailing bytes after a record are malformed, not a second record.
+	if _, _, err := SplitBEEFPayload(append(append([]byte(nil), rec...), 0x00)); err == nil {
+		t.Fatal("trailing byte accepted")
+	}
+	if _, err := BEEFMulticastRecord(beefObj, 1); err == nil {
+		t.Fatal("bare object accepted as a record")
+	}
+}
