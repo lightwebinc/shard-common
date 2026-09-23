@@ -108,10 +108,12 @@ Codec summary (`frame.DecodeBEEF` + `objfmt` records; FrameVer `0x09`,
   in the `0xEFBExxxx` range.
 - **Submission record** (up; leading `0xBEEF` tag — the third grammar on the
   tx port): `u16 tag ∥ u8 recordVer ∥ u8 topicCount ∥ topics ∥ u32 objectLen
-  ∥ object`; ingress expands one record into one `0x09` frame per topic. The
-  grammar carries `topicCount` 1..15, but admitting a multi-topic record is an
-  ingress policy, not a codec property: the reference proxy admits one topic
-  per record unless an authenticated submit policy is installed.
+  ∥ object`; ingress carries one record as ONE `0x09` frame at any topic
+  count, the payload being the record verbatim (`BEEFMulticastRecord`), with
+  header byte 7 `DeliverCount` saying how many leading topics delivery edges
+  may match (1 from the open path; a submit policy lifts a known source).
+  Consumers unwrap a delivery payload with `SplitBEEFPayload` and match on
+  `BEEFDeliverableTopicIDs`.
 - **Delivery record** (down; stripped lanes): 32-byte `TopicID` ∥ `u32` BE
   object length ∥ object (`objfmt.EncodeBEEFDelivery`).
 
