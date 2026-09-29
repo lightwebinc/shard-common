@@ -103,7 +103,7 @@ jobs:
           # next push fails on code nobody edited. Every other repo in the
           # fleet pins its linter version; this was the sole gap. Keep it
           # level with those.
-          version: v2.13.2
+          version: v2.14.0
 
   test:
     name: test
