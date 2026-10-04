@@ -1,9 +1,8 @@
 name: CI
 
 on:
+  # main only: a branch with a PR is covered by the pull_request run.
   push:
-    # main only: PR branches are covered by the pull_request run; a bare
-    # push trigger ran the matrix twice per PR and again on every tag.
     branches: [main]
   pull_request:
 
@@ -11,109 +10,19 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
-  # freebsd/amd64 is a real deployment target (the FreeBSD spines), and this
-  # module is where the GOOS split actually lives: netjoin/sockaddr_bsd.go vs
-  # netjoin/sockaddr_linux.go, hostinfo/platform_other.go vs
-  # hostinfo/platform_linux.go. Until this matrix existed nothing in CI ever
-  # compiled the BSD half, and it rotted unnoticed — the netjoin sockaddr layout
-  # bug was found by hand on a live node, not here.
-  #
-  # A linux runner can only BUILD and VET the freebsd target, never run its
-  # tests, so the freebsd entry is honestly a compile+type-check job. That is
-  # still the whole failure class that was escaping.
-  build:
-    name: build (${{ matrix.goos }})
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        goos: [linux, freebsd]
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+  # freebsd is a real deployment target and this module carries GOOS-split
+  # files (netjoin sockaddr_linux.go / sockaddr_bsd.go) that only a freebsd
+  # build compiles. A linux runner can build and vet it, not run its tests.
+  go:
+    uses: lightwebinc/ci/.github/workflows/go-host.yml@bfcf31c675b8206453c90497534a72886933f0a9 # main
+    with:
+      goos: '["linux", "freebsd"]'
+      tidy-check: true
+      golangci-lint-version: v2.14.0
 
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
-        with:
-          go-version: "1.27.1"
-
-      # `go mod tidy` resolves imports across every build configuration, so its
-      # result does not depend on GOOS. Run it once.
-      - name: go mod tidy check
-        if: matrix.goos == 'linux'
-        run: |
-          go mod tidy
-          git diff --exit-code go.mod go.sum
-
-      - name: Build
-        env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: amd64
-        run: go build -buildvcs=false ./...
-
-      # `go build ./...` never compiles _test.go, so a platform-gated test that
-      # references a linux-only symbol still slips through. go vet type-checks
-      # the test files as well. Only the cross target is vetted here; the linux
-      # vet already runs in the lint job next to golangci-lint.
-      - name: Vet
-        if: matrix.goos != 'linux'
-        env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: amd64
-        run: go vet ./...
-
-  security:
-    name: security
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
-        with:
-          go-version: "1.27.1"
-
-      - name: govulncheck
-        # PINNED, and the pin TRACKS THE TOOLCHAIN: v1.1.4 was held because
-        # >=v1.2 panicked on Go 1.26 ("ForEachElement called on type containing
-        # *types.TypeParam"). On Go 1.27 that inverts — v1.1.4's x/tools is too
-        # old to read 1.27 export data and crashes instead. Re-check this pin on
-        # every go-version bump; it is not inert. The vuln DATABASE is fetched at
-        # run time, so pinning the binary costs no detection freshness.
-        run: |
-          go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
-          govulncheck ./...
-
-  lint:
-    name: lint
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
-        with:
-          go-version: "1.27.1"
-
-      - name: go vet
-        run: go vet ./...
-
-      - name: golangci-lint
-        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
-        with:
-          # PIN. Unpinned this floats to latest, which is the one way an
-          # untouched commit goes red — a new release adds a linter and the
-          # next push fails on code nobody edited. Every other repo in the
-          # fleet pins its linter version; this was the sole gap. Keep it
-          # level with those.
-          version: v2.14.0
-
-  test:
-    name: test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
-        with:
-          go-version: "1.27.1"
-
-      - name: Unit tests
-        run: go test -race ./...
+  govulncheck:
+    uses: lightwebinc/ci/.github/workflows/govulncheck.yml@bfcf31c675b8206453c90497534a72886933f0a9 # main

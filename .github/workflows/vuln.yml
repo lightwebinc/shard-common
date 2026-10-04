@@ -22,21 +22,4 @@ permissions:
 
 jobs:
   govulncheck:
-    name: govulncheck
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
-        with:
-          go-version: "1.27.1"
-
-      - name: govulncheck
-        # PINNED, and the pin TRACKS THE TOOLCHAIN: v1.1.4 was held because
-        # >=v1.2 panicked on Go 1.26 ("ForEachElement called on type containing
-        # *types.TypeParam"). On Go 1.27 that inverts — v1.1.4's x/tools is too
-        # old to read 1.27 export data and crashes instead. Re-check this pin on
-        # every go-version bump; it is not inert. The vuln DATABASE is fetched at
-        # run time, so pinning the binary costs no detection freshness.
-        run: |
-          go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
-          govulncheck ./...
+    uses: lightwebinc/ci/.github/workflows/govulncheck.yml@bfcf31c675b8206453c90497534a72886933f0a9 # main
