@@ -18,11 +18,11 @@ jobs:
   # files (netjoin sockaddr_linux.go / sockaddr_bsd.go) that only a freebsd
   # build compiles. A linux runner can build and vet it, not run its tests.
   go:
-    uses: lightwebinc/ci/.github/workflows/go-host.yml@bfcf31c675b8206453c90497534a72886933f0a9 # main
+    uses: lightwebinc/ci/.github/workflows/go-host.yml@3f438e60ade351107a3d1601955ebbf34de8caf1 # v0.1.0
     with:
       goos: '["linux", "freebsd"]'
       tidy-check: true
       golangci-lint-version: v2.14.0
 
   govulncheck:
-    uses: lightwebinc/ci/.github/workflows/govulncheck.yml@bfcf31c675b8206453c90497534a72886933f0a9 # main
+    uses: lightwebinc/ci/.github/workflows/govulncheck.yml@3f438e60ade351107a3d1601955ebbf34de8caf1 # v0.1.0
