@@ -170,8 +170,8 @@ provision the namespace (infra role) and set `-cache-backend=aerospike` /
   each repo's own `docs/configuration.md` + `docs/architecture.md` notes (not
   shard-common's `docs/`).
 - **shard-common** — `cache` package + README packages table.
-- **Helm charts** — `retry-endpoint-helm` (`cacheBackend` + `aerospike*`),
-  `shard-proxy-helm` (`txidDedup.backend` + `aerospike*`), `shard-listener-helm`
+- **Helm charts** — `charts/retry-endpoint` (`cacheBackend` + `aerospike*`),
+  `charts/shard-proxy` (`txidDedup.backend` + `aerospike*`), `charts/shard-listener`
   (`egressDedup*` / `ingressSet*` backend + `aerospike*`): `values.yaml`,
   `values.schema.json` enums, and README values reference. Operators passing
   comma-separated `aerospikeHosts` via `--set` must escape commas.
