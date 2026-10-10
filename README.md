@@ -9,8 +9,8 @@
 
 Shared protocol primitives for the BSV transaction sharding pipeline. Imported
 by `shard-proxy`, `shard-listener`, `retry-endpoint`, `subtx-generator`,
-`shard-manifest`, `teranode-bridge`, `arcade-bridge`, `beef-generator`, and
-`multicast-test`.
+`shard-manifest`, `teranode-bridge`, `arcade-bridge`, `beef-generator`,
+`overlay-bridge`, and `multicast-test`.
 
 ## Packages
 
@@ -54,7 +54,7 @@ for the system-level designs.
 
 ## Documentation
 
-- [Wire Protocol Specification](docs/protocol.md) — BRC-124/BRC-128 frame format, legacy BRC-12, BRC-142 coalescing (bundle) frame, BRC-149 BEEF object frame, shard derivation, proxy forward rules, constants reference
+- [Wire Protocol Specification](docs/protocol.md) — BRC-124/BRC-128 frame format, legacy BRC-12, BRC-142 coalescing (bundle) frame, BRC-149 BEEF object frame, shard derivation, constants reference
 - [Modular Cache Backend](docs/cache-backend.md) — the `cache` interface, shipped backends, per-consumer wiring and flags
 - [Unified Component Logging](docs/logging.md) — the `logging`/`hostinfo`/`tracing` output contract shared by every binary
 
@@ -68,6 +68,10 @@ for the system-level designs.
 go build ./...
 go test ./...
 ```
+
+## Releases
+
+Releases and release notes live on [GitHub Releases](https://github.com/lightwebinc/shard-common/releases); there is no CHANGELOG.
 
 ## License
 

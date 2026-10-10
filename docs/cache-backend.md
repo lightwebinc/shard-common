@@ -126,36 +126,15 @@ existing `prefix + hex(txid)` allocation stays on the cold (miss) path.
 
 ## Configuration
 
-Every flag has an UPPERCASE env-var equivalent.
+Flags (each with an UPPERCASE env-var equivalent) are documented in each
+consumer's configuration reference:
 
-### shard-proxy (ingress dedup)
-
-| Flag | Default | Notes |
-|------|---------|-------|
-| `-txid-dedup-backend` | infer (`redis` if addr set, else `none`) | `redis\|aerospike\|memory\|none` |
-| `-txid-dedup-redis-addr` | "" | Redis/Valkey/Dragonfly address |
-| `-txid-dedup-aerospike-hosts` | "" | comma-separated `host:port`; required for aerospike |
-| `-txid-dedup-aerospike-namespace` | `cache` | |
-| `-txid-dedup-aerospike-set` | `bsp` | |
-
-### shard-listener (egress dedup + ingress mark)
-
-Two independent stores, each with its own backend selector:
-`-egress-dedup-backend` / `-egress-dedup-redis-addr` /
-`-egress-dedup-aerospike-{hosts,namespace,set}` and the `-ingress-set-*`
-equivalents.
-
-### retry-endpoint (frame cache + dedup)
-
-| Flag | Default | Notes |
-|------|---------|-------|
-| `-cache-backend` | `memory` | `memory\|redis\|aerospike` |
-| `-redis-addr` | "" | required for `redis`; also enables dedup when backend=`memory` |
-| `-aerospike-hosts` | "" | required for `aerospike` |
-| `-aerospike-namespace` | `cache` | |
-| `-aerospike-set` | `bre` | |
-| `-cache-dial-timeout` | `1s` | |
-| `-cache-op-timeout` | `1s` | per-op ceiling |
+- shard-proxy (`-txid-dedup-*`):
+  [Ingress TxID dedup](https://github.com/lightwebinc/shard-proxy/blob/main/docs/configuration.md#ingress-txid-dedup)
+- shard-listener (`-egress-dedup-*`, `-ingress-set-*`):
+  [Cross-Listener TxID Deduplication](https://github.com/lightwebinc/shard-listener/blob/main/docs/configuration.md#cross-listener-txid-deduplication)
+- retry-endpoint (`-cache-backend`, `-redis-addr`, `-aerospike-*`, `-cache-*-timeout`):
+  [Cache](https://github.com/lightwebinc/retry-endpoint/blob/main/docs/configuration.md#cache)
 
 ## Adoption
 
