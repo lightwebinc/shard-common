@@ -1,4 +1,4 @@
-# Unified Component Logging Plan
+# Unified Component Logging
 
 - Status: **Implemented** (emit side) — the `logging`, `hostinfo`, and
   `tracing` packages are wired into every service binary (`shard-proxy`,
@@ -6,7 +6,7 @@
   covered by the `multicast-test` e2e suite; see each repo's git tags for the
   release that carries it. Collector rollout (Grafana Alloy → Loki) +
   node_exporter remain the deferred infra phase.
-- Scope (this phase): the **emit side** only. Standardize how every component
+- Scope: the **emit side** only. Standardize how every component
   *produces* logs so they are structured, self-identifying, and consistent.
 - **Deferred to a later phase (but its architecture is now decided, see
   [Recommended transport](#recommended-transport-architecture-decided)):** the
@@ -33,7 +33,7 @@ carry: which group failed to join, which errno a `sendmmsg` returned, which
 deprecated flag a host still uses, why a frame was dropped. Today that narrative
 is inconsistent and unattributed, so it is unusable at fleet scale.
 
-### Baseline before this plan (historical inventory)
+### Baseline before unification (historical inventory)
 
 | Component | Logger | Handler | Sink | Identity attrs on logs? |
 |-----------|--------|---------|------|-------------------------|
@@ -66,8 +66,7 @@ is inconsistent and unattributed, so it is unusable at fleet scale.
 
 Every existing and future log line maps to one of these categories. The
 category fixes the **level**, the **required attributes**, and the **hot-path
-discipline**. This is the catalogue the user asked for — "all potential log
-messaging" — organized so each new call site has an obvious home.
+discipline**. Each new call site has an obvious home.
 
 | # | Category | Default level | Hot path? | Examples (from today's code) | Required attrs |
 |---|----------|---------------|-----------|------------------------------|----------------|
@@ -272,7 +271,7 @@ app does not.** Rationale, in priority order:
    data plane.
 2. **Standard + future-proof.** OTLP is the CNCF vendor-neutral standard; the
    collector can fan out to Loki, ELK, ClickHouse, or an OTLP SaaS with a config
-   change and no app rebuild. The user's intuition is correct: **emit toward
+   change and no app rebuild. So: **emit toward
    OTLP, let Loki ingest later** — Loki 3.x accepts OTLP natively, so the path is
    direct.
 3. **One agent, three signals.** Grafana Alloy (or the OTel Collector) carries
@@ -331,7 +330,7 @@ Design constraints:
 This gives "maximum tracing" where it is safe and meaningful, and **none** where
 it would cost throughput.
 
-## What this phase does NOT do
+## Out of scope
 
 - No shipping agent, DaemonSet, collector, or Loki **deployed yet** — that is the
   deferred rollout. The architecture above is fixed; only its Ansible/Helm
@@ -373,21 +372,7 @@ design constraint, not a style preference. Rules:
 These rules make JSON's per-line overhead irrelevant: the win is **far fewer
 lines**, and the collector compresses what remains on the wire.
 
-## Phasing
-
-| Phase | Deliverable | Repos | Status |
-|-------|-------------|-------|--------|
-| 0 | This design doc | `shard-common` | done |
-| 1 | `shard-common/logging` (+ `hostinfo`) package; add gopsutil dep | `shard-common` | done |
-| 2 | Wire all binaries to it; add `-log-format`/`LOG_FORMAT` + `-log-level`/`LOG_LEVEL` (LevelVar) config; collapse boot lines into one `startup.config`; convert `subtx-generator` off plain `log` | all services | done |
-| 3 | One-shot `host.inventory` event at startup (gopsutil + ethtool ioctls + sysctls) | all services | done |
-| 4 | Category-8 in-process OS/NIC syscall logs at proxy/listener | `shard-proxy`, `shard-listener` | done |
-| 5 | Runtime level control (SIGHUP + admin endpoint) | all services | done |
-| 6 | `shard-common/tracing` (opt-in OTLP traces, no-op when off); spans on control-plane flows only | `shard-common` + all services | done |
-| 7 | Slim `<prefix>_host_info` gauge mirror in each component | all services | done |
-| — | **Collector rollout (Grafana Alloy → Loki) + node_exporter** | infra repos | **deferred — separate plan, architecture decided above** |
-
-## Config surface (Phases 2 & 4)
+## Config surface
 
 Every flag gets an UPPERCASE env equivalent, in the per-repo `config/` package.
 
@@ -401,23 +386,7 @@ Every flag gets an UPPERCASE env equivalent, in the per-repo `config/` package.
 existing units; emits a category-3 warning when used. Tracing reuses the existing
 `OTLP_ENDPOINT`; with `-trace-sampling 0` the tracer is a no-op and costs nothing.
 
-## Cross-repo documentation checklist
-
-Shipped alongside Phases 1–4 (kept for reference):
-
-- **shard-common**: `README.md` Packages table + `docs/` entry for the new
-  `logging` (+ `hostinfo`) package (the identity/format/level contract and the
-  `host.inventory` field list); note the new gopsutil dependency.
-- **Each service repo** (its own docs, not shard-common's): `docs/configuration.md`
-  (the two new flags, the `-debug` deprecation), `docs/architecture.md` (a
-  "Logging" section naming the category-8 syscall sites for proxy/listener),
-  `README.md` quick-start line.
-- **Helm charts**: `values.yaml` `logFormat`/`logLevel` keys + `values.schema.json`
-  enums (`{text,json}`, `{debug,info,warn,error}`); `README.md` values reference.
-- **Infra repos**: `config.env.j2` gains `LOG_FORMAT`/`LOG_LEVEL`. (Collector +
-  node_exporter roles are the deferred rollout phase, not here.)
-
-## Open questions (resolutions)
+## Decisions
 
 1. **Collector**: **decided — Grafana Alloy** (Apache-2.0, OTLP→Loki; chosen
    over the upstream OpenTelemetry Collector for stack affinity). The backend
