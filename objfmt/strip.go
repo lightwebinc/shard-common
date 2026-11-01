@@ -9,14 +9,14 @@ import (
 // StripBytes is the down-direction inverse of [MulticastBytes]: it turns a
 // fully-encoded multicast frame of class c into the bare push-object bytes
 // delivered on that class's single-class lane. The two directions live in this
-// one package so they cannot drift — for ClassTx/ClassSubtree/ClassBlock,
+// one package so they cannot drift; for ClassTx/ClassSubtree/ClassBlock,
 // StripBytes(c, MulticastBytes(c, obj)) reproduces obj.
 //
 //   - ClassTx      → the BRC-12 raw / BRC-30 EF transaction payload of the
 //     BRC-124/128 frame.
 //   - ClassSubtree → BRC-143 (32B root ∥ u64 NodeCount ∥ N×32 hashes), rebuilt
 //     from the BRC-132 frame's SubtreeID (the in-band merkle root) and its node
-//     hashes. Fee/size are dropped (BRC-143 omits them — Teranode recomputes),
+//     hashes. Fee/size are dropped (BRC-143 omits them; Teranode recomputes),
 //     so it is well-defined for both hashes-only and full-node BRC-132 frames.
 //   - ClassBlock   → the verbatim BRC-144 body carried in the BRC-131 frame.
 //     A BRC-131 whose payload is not a whole BRC-144 (a lossy native

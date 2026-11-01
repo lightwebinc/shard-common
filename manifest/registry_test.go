@@ -145,7 +145,7 @@ func TestRegistry_SourcesDeduped(t *testing.T) {
 func TestRegistry_ExpiryDatedFromEpoch(t *testing.T) {
 	// BRC-139: an entry expires at Epoch + TTL. The manifest below was
 	// generated 50 s before it was received, so 10 s of its 60 s window
-	// remain — receipt-dated expiry would have given it 60 more.
+	// remain; receipt-dated expiry would have given it 60 more.
 	epoch := int64(1746800000)
 	clock := time.Unix(epoch+50, 0)
 	r := NewRegistry(0)

@@ -23,7 +23,7 @@
 //
 // Community Edition requires an operator-provisioned namespace; the package
 // writes to [Options.Namespace]/[Options.Set]. CE has no XDR or
-// rack-awareness — for multi-region replication choose a Redis-compatible
+// rack-awareness; for multi-region replication choose a Redis-compatible
 // backend or Enterprise Edition.
 package aerospike
 

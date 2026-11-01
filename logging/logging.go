@@ -2,8 +2,7 @@
 // shared by every binary in the multicast fleet (shard-proxy, shard-listener,
 // retry-endpoint, shard-manifest, subtx-generator).
 //
-// It owns slog initialisation so the previously divergent per-service setup
-// sites collapse to one [Init] call. Every log line emitted after Init carries
+// It owns slog initialization so every service has one [Init] call. Every log line emitted after Init carries
 // the same identity triple that OTLP metrics attach as resource attributes
 // (service.name, service.instance.id, service.version), so logs and metrics
 // join on shared dimensions in the backend.

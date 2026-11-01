@@ -71,7 +71,7 @@ func TestBEEFRecordRoundTrip(t *testing.T) {
 		t.Fatalf("EncodeBEEFRecord: %v", err)
 	}
 
-	// The record leads with the 0xBEEF tag — grammar-distinct from a framed
+	// The record leads with the 0xBEEF tag, grammar-distinct from a framed
 	// datagram (0xE3) and a bare tx (byte[1] == 0x00).
 	if rec[0] != 0xBE || rec[1] != 0xEF {
 		t.Fatalf("record tag bytes = %02X %02X, want BE EF", rec[0], rec[1])

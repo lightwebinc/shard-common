@@ -28,7 +28,7 @@ func TestCompactToTarget_Invalid(t *testing.T) {
 	}
 }
 
-// regtestBits encodes target ~2^255 — easy enough that a few nonce tries find a
+// regtestBits encodes target ~2^255, easy enough that a few nonce tries find a
 // passing header, so the success path is exercised deterministically (the loop
 // always converges).
 const regtestBits = 0x207fffff

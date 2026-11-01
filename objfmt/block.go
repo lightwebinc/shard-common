@@ -37,7 +37,7 @@ func BlockSize(buf []byte) (int, error) {
 		return 0, ErrShort
 	}
 
-	// Inline coinbase — self-delimiting by transaction structure (no length
+	// Inline coinbase: self-delimiting by transaction structure (no length
 	// prefix, as in the native block body). ErrShort/ErrMalformed propagate.
 	cb, err := TxSize(buf[off:])
 	if err != nil {
@@ -64,8 +64,8 @@ func BlockSize(buf []byte) (int, error) {
 // blockMulticast wraps a BRC-144 block push frame into the fabric block frame.
 // Per the design direction (multicast is fabric-internal; no consumer
 // terminates on the fabric frame) the whole BRC-144 body is carried VERBATIM as
-// the payload of a BRC-131 block-control frame — not projected into a lossy
-// BlockAnnounce — so the delivery edge unwraps a byte-identical BRC-144 with no
+// the payload of a BRC-131 block-control frame (not projected into a lossy
+// BlockAnnounce), so the delivery edge unwraps a byte-identical BRC-144 with no
 // height/BUMP loss and no correlation step. ContentID is the block hash
 // (SHA256d of the 80-byte header); the frame is unstamped (proxy stamps).
 func blockMulticast(obj []byte) ([]byte, error) {

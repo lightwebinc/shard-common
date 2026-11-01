@@ -131,7 +131,7 @@ func (r *Registry) Upsert(src netip.Addr, m *frame.ShardManifest) *Entry {
 		}
 	}
 
-	// BRC-139 §Consumer profile: an entry expires at Epoch + TTL — the
+	// BRC-139 §Consumer profile: an entry expires at Epoch + TTL, the
 	// ANNOUNCER's timestamp, not ours. Dating the window from receipt
 	// silently extends a stale manifest by however long it spent in flight
 	// (or queued behind a restart), which is exactly the window the epoch
@@ -180,7 +180,7 @@ func (r *Registry) Evict() {
 
 // Snapshot returns a copy of every currently-valid entry. The returned
 // slice is owned by the caller; entries' internal slice fields (Sources,
-// Groups) are not deep-copied — treat them as read-only.
+// Groups) are not deep-copied; treat them as read-only.
 func (r *Registry) Snapshot() []*Entry {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -233,7 +233,7 @@ func dedupSources(in [][16]byte) []netip.Addr {
 // Indices at or beyond 2^ShardBits are DROPPED. BRC-139 §Groups payload
 // requires bits at positions ≥ 2^ShardBits to be zero and MUST be ignored by
 // consumers; the same bound applies to the list form, which addresses the
-// same index space. An out-of-range index is not merely noise — auto-join
+// same index space. An out-of-range index is not merely noise; auto-join
 // turns it into a join of a group address outside the announced plane, which
 // no publisher sends to and which the pilot never meant to name.
 func expandGroups(m *frame.ShardManifest) []uint16 {

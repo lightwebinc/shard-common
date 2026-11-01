@@ -24,7 +24,7 @@ func testBEEFFrame() *BEEFFrame {
 	f := &BEEFFrame{
 		HashKey: 0xDEADBEEFCAFEBABE,
 		SeqNum:  42,
-		// 0100BEEF marker + arbitrary body — the codec never parses BEEF
+		// 0100BEEF marker + arbitrary body; the codec never parses BEEF
 		// structure, only carries it verbatim.
 		Payload: []byte{0x01, 0x00, 0xBE, 0xEF, 0xAA, 0xBB, 0xCC},
 	}

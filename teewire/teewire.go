@@ -11,7 +11,7 @@
 // A mirrored datagram is sent from a local socket, so the receiving cache sees
 // a loopback source address ("::1") instead of the frame's fabric source. The
 // retry-endpoint's per-source cache counters (bre_cache_stored_total{source=…})
-// are an alerting contract — a source whose frames stop being cached must read
+// are an alerting contract: a source whose frames stop being cached must read
 // as a ZERO RATE on its own label, not vanish into a shared "::1" label. The
 // envelope carries the original datagram source so a tee-fed cache preserves
 // per-source attribution exactly as a multicast-joined one does.
@@ -91,7 +91,7 @@ func AppendEncap(dst []byte, src netip.AddrPort, payload []byte) []byte {
 }
 
 // Decap validates the envelope in b and returns the original datagram source
-// and the payload. The payload aliases b — it is valid only as long as b is.
+// and the payload. The payload aliases b; it is valid only as long as b is.
 func Decap(b []byte) (src netip.AddrPort, payload []byte, err error) {
 	if len(b) < HeaderSize {
 		return netip.AddrPort{}, nil, ErrTooShort

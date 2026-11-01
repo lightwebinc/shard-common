@@ -1,4 +1,4 @@
-# BSV Shard — Wire Protocol Specification
+# BSV Shard Wire Protocol Specification
 
 ## 1. Overview
 
@@ -19,18 +19,18 @@ Codec summary (`frame` package):
 
 - **92-byte big-endian header**, all 8-byte fields 8-byte aligned:
   Magic `0xE3E1F3E8` (BSV mainnet P2P), ProtoVer `0x02BF` (informational),
-  FrameVer `0x02`, Reserved `0x00`, TxID (32 B, internal byte order — the top
+  FrameVer `0x02`, Reserved `0x00`, TxID (32 B, internal byte order; the top
   bits of `txid[0:4]` drive shard derivation, §5), HashKey (8 B), SeqNum (8 B),
   SubtreeID (32 B, zeros = unset), PayloadLen (`uint32`; the application
   determines the maximum accepted size).
 - **HashKey** = `XXH64(senderIPv6 ∥ groupIdx ∥ subtreeID)`, the unique
   `(sender, group, subtree)` flow id. **SeqNum** is a monotonic per-flow
-  counter starting at 1. `0` means unstamped — set by the sender or stamped
-  in-place by the proxy (§6). Receivers track last-seen SeqNum per HashKey; a
+  counter starting at 1. `0` means unstamped; the sender sets it or the proxy
+  stamps it in place (§6). Receivers track last-seen SeqNum per HashKey; a
   jump > 1 is a gap that triggers BRC-126 NACK retransmission.
-- **Payload** — raw serialised BSV tx (BRC-12) or BRC-30 Extended Format
+- **Payload**: raw serialized BSV tx (BRC-12) or BRC-30 Extended Format
   (BRC-128), no P2P envelope. EF payloads self-identify via the 6-byte marker
-  at payload bytes 4–9 (`0x000000000000EF`); infrastructure components are
+  at payload bytes 4–9 (`0x0000000000EF`); infrastructure components are
   payload-agnostic.
 
 ---
@@ -53,10 +53,10 @@ Offset  Size  Field
 ```
 
 **TCP ingress:** grammar is detected once per connection from the leading
-bytes (framed magic / `0xBEEF` record / bare transaction — see §7). On a
+bytes (framed magic, `0xBEEF` record, or bare transaction; see §7). On a
 framed stream the reader reads 44 bytes to detect the version, then completes
 the header read if BRC-124/BRC-128 (48 more bytes). No separate port is needed
-for BRC-12 and BRC-124/BRC-128 — both formats share the same listener.
+for BRC-12 and BRC-124/BRC-128; both formats share the same listener.
 
 ---
 
@@ -68,7 +68,7 @@ Canonical wire spec (header/member offset tables, flag semantics):
 Codec summary (`bundle` package; FrameVer `0x08`, 66-byte big-endian header):
 
 - A *bundle* packs many small BSV transactions of one `(sender, group,
-  subtree)` flow into a single datagram — the inverse of BRC-130
+  subtree)` flow into a single datagram, the inverse of BRC-130
   fragmentation. It carries a single HashKey/SeqNum and slots into BRC-126
   NACK/retry as one "fat frame," keeping ordering and gap detection unchanged.
 - Decoded by `bundle.Decode` (not `frame.Decode`, which returns `ErrBadVer`
@@ -102,11 +102,11 @@ Codec summary (`frame.DecodeBEEF` + `objfmt` records; FrameVer `0x09`,
   at 40, `SeqNum` at 48, `TopicID` (SHA-256 of the topic name) at 56,
   `PayloadLen` at 88. The BEEF encoding version is the payload's first four
   bytes, not duplicated in the header. That word must be one of the three
-  markers in the BRC-149 version-word table — `0100BEEF` (BRC-62),
+  markers in the BRC-149 version-word table: `0100BEEF` (BRC-62),
   `0200BEEF` (BRC-96), `01010101` (BRC-95 Atomic); the table is closed, so
   `objfmt.IsBEEFObject` rejects any other word, including unallocated ones
   in the `0xEFBExxxx` range.
-- **Submission record** (up; leading `0xBEEF` tag — the third grammar on the
+- **Submission record** (up; leading `0xBEEF` tag, the third grammar on the
   tx port): `u16 tag ∥ u8 recordVer ∥ u8 topicCount ∥ topics ∥ u32 objectLen
   ∥ object`; ingress carries one record as ONE `0x09` frame at any topic
   count, the payload being the record verbatim (`BEEFMulticastRecord`), with
@@ -125,7 +125,7 @@ A *subtree* is an ordered set of related transactions sharing a common batch
 context. The `SubtreeID` field allows downstream subscribers to associate
 frames with a named batch:
 
-- **`SubtreeID`** — 32-byte opaque batch identifier; all-zero means unset.
+- **`SubtreeID`**: 32-byte opaque batch identifier; all-zero means unset.
 
 This field is optional. The proxy passes it through unchanged.
 
@@ -143,10 +143,10 @@ groupIndex = (txid[0:4] as uint32 BE) >> (32 - shardBits)
 ```
 
 where `shardBits` is the configured `-shard-bits` value (default 2, range
-1–12 — BRC-129 zoning: shard indices `0x0000`–`0x0FFF`). A BRC-148 object
-plane is the same arithmetic over its own key at its own width, which
-`shard.ValidatePlane` bounds at `[0, 15]` with `0` — a single group for the
-whole plane — the ratified BEEF-plane default; the shipping binaries cap
+1–12; BRC-129 zoning puts shard indices at `0x0000`–`0x0FFF`). A BRC-148
+object plane is the same arithmetic over its own key at its own width, which
+`shard.ValidatePlane` bounds at `[0, 15]`; `0` (a single group for the whole
+plane) is the BEEF-plane default, and the proxy and listener cap
 `-beef-shard-bits` at 12. The group index maps
 to an IPv6 multicast address `[FFsc::groupIndex]`, where `sc` is the
 two-nibble scope code (e.g. `FF05` for site-local); the IANA group-id occupies
@@ -176,7 +176,7 @@ loopback hop.
 
 ```text
 Offset  Size  Field
- 0      4     Magic 0x54454531 ("TEE1" — first byte differs from MagicBSV,
+ 0      4     Magic 0x54454531 ("TEE1"; first byte differs from MagicBSV,
               so raw frames and envelopes share a socket unambiguously)
  4      1     Version (0x01)
  5      1     Flags (reserved; writers MUST send 0, readers MUST ignore)
@@ -229,15 +229,15 @@ sources are global/ULA `/128`s). Codec: `shard-common/teewire`
 
 ## 10. Source-Specific Multicast (RFC 4607)
 
-See the [SSM Support Plan](https://github.com/lightwebinc/bsv-multicast/blob/main/DESIGN.md#source-specific-multicast-ssm)
+See [Source-Specific Multicast](https://github.com/lightwebinc/bsv-multicast/blob/main/DESIGN.md#source-specific-multicast-ssm)
 for the system-level design. shard-common provides three building
 blocks used by every multicast-aware repo:
 
-### 10.1 Addressing — `shard.Prefix(mode, scope)`
+### 10.1 Addressing: `shard.Prefix(mode, scope)`
 
 | Mode | Site scope (intra-domain) | Global scope (inter-domain)                       |
 | ---- | ------------------------- | ------------------------------------------------- |
-| ASM  | `FF05::B:idx` (default)   | rejected — RFC 8815 deprecates inter-domain ASM   |
+| ASM  | `FF05::B:idx` (default)   | rejected; RFC 8815 deprecates inter-domain ASM    |
 | SSM  | `FF35::B:idx`             | `FF3E::B:idx`                                     |
 
 `SourceMode` (`asm`|`ssm`) and `Scope` (`site`|`global`) are exposed by
@@ -245,7 +245,7 @@ the `shard` package with `String()` / `ParseSourceMode` / `ParseScope`
 helpers. The `(ASM, global)` combination returns an explicit RFC 8815
 error from `Prefix()`.
 
-### 10.2 Receiver-side joins — `netjoin.Join`
+### 10.2 Receiver-side joins: `netjoin.Join`
 
 ```go
 err := netjoin.Join(fd, ifaceIdx, group, sources)
@@ -256,10 +256,10 @@ err := netjoin.Join(fd, ifaceIdx, group, sources)
 The branch is selected by source-list presence so consumer code shares
 one call site for both ASM and SSM. `netjoin.Leave` mirrors the API,
 and `netjoin.Limiter` (token bucket) + `netjoin.Jitter` (startup
-randomisation) protect the kernel mfib and upstream MLDv2 querier
+randomization) protect the kernel mfib and upstream MLDv2 querier
 against cold-start storms at the hundreds-of-publishers scale.
 
-### 10.3 Bootstrap source-list resolver — `bootstrap.Resolver`
+### 10.3 Bootstrap source-list resolver: `bootstrap.Resolver`
 
 `bootstrap.Resolver` resolves a list of DNS names and/or IPv6 literals
 to a live set of IPv6 addresses for SSM `(S,G)` joins:
@@ -285,7 +285,7 @@ optional sources payload, plus two further extension bits:
 | 6   | `ShardManifestFlagSuccessorValid` | A 24-byte Successor block `(GenerationID, ShardBits, Flags, TransitionEpoch)` follows the sources payload (live re-sharding). Requires `Authoritative=1`; the codec rejects a successor `ShardBits` more than ±1 from the announcer's. |
 | 7   | `ShardManifestFlagDomainsValid` | A BRC-148 Domains section (`u8 DomainCount` + 24-byte descriptors, each optionally followed by its own Successor block) is appended after the groups, sources, and Successor payloads. The last unallocated top-level flag bit. |
 
-`SourceCount` occupies bytes [42:44] (formerly reserved). The
+`SourceCount` occupies bytes [42:44]. The
 encoder/decoder enforce the BRC-139 coherence rules and return
 `ErrShardManifestBadSources` on violations:
 

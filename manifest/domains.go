@@ -1,7 +1,7 @@
 // BRC-148 per-domain (object-plane) adoption. The BRC-139 normative
-// consumer profile — authoritative quorum, hysteresis, manual-pin
+// consumer profile (authoritative quorum, hysteresis, manual-pin
 // precedence, divergence telemetry, and Successor-block generation
-// transitions — applies per DomainID, using the same tally machinery as the
+// transitions) applies per DomainID, using the same tally machinery as the
 // top-level fields. Domain 0x0 never adopts here: the top-level
 // ShardBits/SourceModeSSM/Successor remain authoritative for the
 // transaction plane (BRC-148 §Backward compatibility).

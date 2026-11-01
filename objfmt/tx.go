@@ -215,8 +215,8 @@ func ToStandard(tx []byte) ([]byte, error) {
 	return out, nil
 }
 
-// TxID returns the transaction ID — SHA256d over the standard serialization,
-// internal byte order — of the transaction at the start of tx. For a BRC-30
+// TxID returns the transaction ID (SHA256d over the standard serialization,
+// internal byte order) of the transaction at the start of tx. For a BRC-30
 // EF transaction the ID is computed with the EF extras excluded, matching
 // how every consumer derives it.
 //

@@ -13,7 +13,7 @@ import (
 const DefaultMaxObject = 64 << 20 // 64 MiB
 
 // Reader splits a single-class byte stream into whole objects. The lane
-// carries exactly one class (frames are bare — no tag, no length prefix), so
+// carries exactly one class (frames are bare: no tag, no length prefix), so
 // the class is supplied out of band at construction.
 type Reader struct {
 	r          io.Reader

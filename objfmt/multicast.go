@@ -6,10 +6,10 @@ import (
 
 // MulticastFrame wraps a pushed ClassTx object into a BRC-124/128 [frame.Frame]
 // (FrameVer 0x02; an EF payload is carried as-is per BRC-128). The returned
-// frame is unstamped (zero HashKey/SeqNum) — the proxy stamps authoritatively
+// frame is unstamped (zero HashKey/SeqNum); the proxy stamps authoritatively
 // from the observed source. It is the single-tx convenience form; ClassSubtree
 // and ClassBlock have no [frame.Frame] representation (they wrap to BRC-132 /
-// the fabric block frame) and return [ErrClassNotRegistered] here — use
+// the fabric block frame) and return [ErrClassNotRegistered] here; use
 // [MulticastBytes] for those.
 func MulticastFrame(c Class, obj []byte) (*frame.Frame, error) {
 	switch c {
@@ -42,7 +42,7 @@ func MulticastFrame(c Class, obj []byte) (*frame.Frame, error) {
 //     in-band merkle root as SubtreeID
 //   - ClassBlock   → BRC-131 block control (FrameVer 0x04) carrying the whole
 //     BRC-144 body verbatim as payload (fabric-internal; the delivery edge
-//     unwraps a byte-identical BRC-144 — no lossy BlockAnnounce projection)
+//     unwraps a byte-identical BRC-144, no lossy BlockAnnounce projection)
 //
 // The frame is unstamped; the proxy stamps HashKey/SeqNum from the observed
 // source. Returns [ErrShort]/[ErrMalformed] for a bad object, or

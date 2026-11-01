@@ -8,7 +8,7 @@ import (
 
 // BenchmarkClaimLocalHit measures the hot-path steady state: a TxID already
 // present in the tier-1 LRU. This path must NOT touch the tier-2 backend and
-// must not allocate — it is the per-packet dedup gate the proxy and listener
+// must not allocate; it is the per-packet dedup gate the proxy and listener
 // run at line rate. Refactoring tier-2 onto cache.Backend must not regress it.
 func BenchmarkClaimLocalHit(b *testing.B) {
 	s, err := New(Config{TTL: time.Minute, LocalCapacity: 1 << 16})
@@ -33,7 +33,7 @@ func BenchmarkClaimLocalHit(b *testing.B) {
 
 // BenchmarkClaimLocalMiss measures a tier-1 miss in local-only mode (no
 // backend): the cold path that inserts into the LRU. Backend == nil so no
-// network call occurs — this is the zero-Redis topology.
+// network call occurs; this is the zero-Redis topology.
 func BenchmarkClaimLocalMiss(b *testing.B) {
 	s, err := New(Config{TTL: time.Minute, LocalCapacity: 1 << 20})
 	if err != nil {

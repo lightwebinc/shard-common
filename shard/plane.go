@@ -27,7 +27,7 @@ const (
 	// DomainBEEF is the BEEF object plane (BRC-148; shard key = TopicID).
 	DomainBEEF uint8 = 0x1
 
-	// DomainMax is the highest assignable plane domain. 0xF is forbidden —
+	// DomainMax is the highest assignable plane domain. 0xF is forbidden:
 	// its slot overlaps the BRC-129 control plane (0xF800–0xFFFF).
 	DomainMax uint8 = 0x0E
 
@@ -65,8 +65,8 @@ func SlotSpan(shardBits uint) uint8 {
 //
 // shardBits = 0 is the degenerate single-group plane: the derivation shifts
 // the key by 32 and masks with 0, so every key maps to planeBase itself. This
-// is the low-membership posture — one group per plane, every delivery edge
-// joining it and filtering locally — which trades fabric selectivity for
+// is the low-membership posture (one group per plane, every delivery edge
+// joining it and filtering locally), which trades fabric selectivity for
 // minimal group-membership and MFC state. It is the initial BEEF-plane
 // setting; widening later only splits groups (see the doc on generations).
 func ValidatePlane(domain uint8, shardBits uint) error {

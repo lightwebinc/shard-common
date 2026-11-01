@@ -154,8 +154,8 @@ func TestDecodeBlockHeader_RejectsBadPayloadLen(t *testing.T) {
 }
 
 // BRC-135 §Error Handling: "Datagram shorter than 172 bytes → Drop;
-// ErrTooShort". The frame is fixed-size, so every short length — including
-// the 92..171 band that carries a complete header — is ErrTooShort, not a
+// ErrTooShort". The frame is fixed-size, so every short length, including
+// the 92..171 band that carries a complete header, is ErrTooShort, not a
 // truncation relative to a declared payload length.
 func TestDecodeBlockHeader_RejectsTruncated(t *testing.T) {
 	hdr := makeBlockHeader80()

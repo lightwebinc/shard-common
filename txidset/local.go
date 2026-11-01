@@ -18,7 +18,7 @@ const localShards = 64
 
 // localSet is a fixed-capacity striped ring-buffer + map of [32]byte keys
 // with per-entry TTL. Sharded internally to avoid a global mutex on the
-// hot dedup path — without sharding the single mutex serialises every
+// hot dedup path; without sharding the single mutex serializes every
 // worker and dominates the proxy's CPU at high pps.
 //
 // Inserts past capacity evict the oldest key in FIFO order within their
@@ -44,7 +44,7 @@ type localShard struct {
 
 func newLocalSet(capacity int, ttl time.Duration) *localSet {
 	if capacity <= 0 {
-		// Degenerate "always cold" set — every SeenAndAdd reports false.
+		// Degenerate "always cold" set; every SeenAndAdd reports false.
 		return &localSet{disabled: true}
 	}
 	// Distribute capacity across shards. Round up so total ≥ requested.

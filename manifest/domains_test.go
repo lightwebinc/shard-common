@@ -62,7 +62,7 @@ func TestDomainAdoptionQuorum(t *testing.T) {
 	if !got.QuorumMet["domain_1_shard_bits"] {
 		t.Error("QuorumMet telemetry key missing")
 	}
-	// Top-level adoption proceeds independently of plane descriptors — the
+	// Top-level adoption proceeds independently of plane descriptors; the
 	// entries' own ShardBits (8) adopts through the ordinary path.
 	if got.ShardBits != 8 {
 		t.Errorf("top-level ShardBits = %d, want 8 (independent of planes)", got.ShardBits)

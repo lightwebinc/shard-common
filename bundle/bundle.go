@@ -55,7 +55,7 @@ const (
 	MaxMembers = 1<<16 - 1
 
 	// MaxMemberTxLen is the largest member transaction length the uint16 length
-	// prefix can express (a length ceiling, not a member count — cf. MaxMembers).
+	// prefix can express (a length ceiling, not a member count; cf. MaxMembers).
 	MaxMemberTxLen = 1<<16 - 1
 
 	memberLenSize  = 2
@@ -82,7 +82,7 @@ var (
 )
 
 // Member is one transaction inside a bundle. Tx is the serialised BSV
-// transaction (BRC-12 raw or BRC-30 Extended Format — EF self-identifies via its
+// transaction (BRC-12 raw or BRC-30 Extended Format; EF self-identifies via its
 // marker). TxID is valid only when the bundle has [FlagTxIDsPresent] set.
 type Member struct {
 	TxID [32]byte

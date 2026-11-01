@@ -6,7 +6,7 @@
 // (IDX 0x1000 + shardIndex(TopicID)). ContentID (SHA-256d of the payload)
 // occupies the TxID slot; TopicID (SHA-256 of the overlay topic name)
 // occupies the SubtreeID slot. The BEEF encoding version is not duplicated
-// in the header — it is the object's first four bytes.
+// in the header; it is the object's first four bytes.
 //
 // The payload takes one of two forms, told apart by its leading bytes: the
 // BRC-149 submission record verbatim (leads with the 0xBEEF tag; carries every
@@ -30,10 +30,10 @@ import (
 // [DecodeBEEF]; the buffer must remain valid for the lifetime of the
 // BEEFFrame.
 type BEEFFrame struct {
-	ContentID [32]byte // SHA-256d(payload) — object identity; keys BRC-130 reassembly
+	ContentID [32]byte // SHA-256d(payload): object identity; keys BRC-130 reassembly
 	HashKey   uint64   // Stamped at ingress; XXH64(sender ∥ domain-tagged groupIdx ∥ zeros); 0 = unset
 	SeqNum    uint64   // Stamped at ingress; monotonic per (sender, group) flow; 0 = unset
-	TopicID   [32]byte // SHA-256(UTF-8 topic name) of the first deliverable topic — shard key
+	TopicID   [32]byte // SHA-256(UTF-8 topic name) of the first deliverable topic; shard key
 	// DeliverCount (byte 7) is how many of the payload record's leading topics
 	// are deliverable: 1 on the open path, up to the operator's cap on the
 	// authenticated path. 0 is the legacy encoding and means exactly 1

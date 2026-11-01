@@ -185,7 +185,7 @@ func TestMark_PopulatesRedisAndLocal(t *testing.T) {
 		t.Fatalf("expected markSet=1, got %d", rec.get(rec.markSet, "p:").Load())
 	}
 
-	// A different Store (checker) must now lose its Claim — the Mark seeded Redis.
+	// A different Store (checker) must now lose its Claim; the Mark seeded Redis.
 	if ok, err := checker.Claim("p:", tx); err != nil || ok {
 		t.Fatalf("checker.Claim after Mark: got (%v, %v), want (false, nil)", ok, err)
 	}
@@ -221,7 +221,7 @@ func TestMark_AfterClose_IsSafe(t *testing.T) {
 	// Must not panic; second Mark should be a no-op against the local set
 	// (still safe because local.SeenAndAdd holds its own mutex and the
 	// channel send falls through when Closed has emptied the channel).
-	// We do not assert behaviour — only that this does not crash.
+	// We do not assert behavior, only that this does not crash.
 	defer func() {
 		if r := recover(); r != nil {
 			t.Fatalf("Mark after Close panicked: %v", r)
@@ -264,7 +264,7 @@ func TestClaim_DifferentPrefixesIndependent(t *testing.T) {
 	if ok, _ := s.Claim("a:", tx); !ok {
 		t.Fatal("Claim(a:) must win first time")
 	}
-	// Local set is keyed by TxID alone — so under the same Store the second
+	// Local set is keyed by TxID alone, so under the same Store the second
 	// Claim short-circuits regardless of prefix. This is acceptable: the
 	// Store is intended to be used with one prefix per Store instance.
 	if ok, _ := s.Claim("b:", tx); ok {

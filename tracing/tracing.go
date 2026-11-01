@@ -3,7 +3,7 @@
 // Tracing is applied to control- and request-scoped flows only (NACK ->
 // retransmit, manifest adoption, lifecycle) and MUST NOT be wired into the
 // per-packet data-plane hot path. See the Distributed tracing section of
-// bsv-multicast/docs/UnifiedLogging/unified-logging-plan.md.
+// shard-common/docs/logging.md.
 //
 // When sampling is 0 or no OTLP endpoint is configured, [Init] installs a
 // no-op tracer: span creation is allocation-free and effectively free, so a

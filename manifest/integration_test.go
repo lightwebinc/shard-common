@@ -18,7 +18,7 @@ import (
 // registry, and confirm the evaluator adopts the value after quorum +
 // hysteresis. Posture-agnostic at the wire level; the same code path
 // runs under Postures A (ASM) and C (SSM) since the manifest format is
-// identical — only the kernel multicast filter differs.
+// identical; only the kernel multicast filter differs.
 func TestIntegration_WireRoundTrip(t *testing.T) {
 	// 1. Stand up a loopback UDP socket pair: sender → receiver.
 	addr, err := net.ResolveUDPAddr("udp6", "[::1]:0")
@@ -83,7 +83,7 @@ func TestIntegration_WireRoundTrip(t *testing.T) {
 	}()
 
 	// 3. Send two distinct authoritative manifests carrying the same
-	// ShardBits=8 — should reach quorum and be adopted.
+	// ShardBits=8; should reach quorum and be adopted.
 	mk := func(id uint32) *frame.ShardManifest {
 		return &frame.ShardManifest{
 			Flags:            frame.ShardManifestFlagAuthoritative | frame.ShardManifestFlagGroupsValid | frame.ShardManifestFlagPilotOnly,
@@ -115,7 +115,7 @@ func TestIntegration_WireRoundTrip(t *testing.T) {
 	for time.Now().Before(deadline) {
 		// Both source IPs are the same loopback (127.0.0.1 or ::1),
 		// but distinct InstanceIDs satisfy the (SrcIPv6, InstanceID)
-		// keying — we should see at least one entry once the read
+		// keying; we should see at least one entry once the read
 		// goroutine has processed both writes.
 		if reg.Len() >= 1 {
 			_ = ev.Evaluate(reg.Snapshot()) // first call records timestamp

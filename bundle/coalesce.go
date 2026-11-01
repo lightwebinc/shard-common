@@ -102,7 +102,7 @@ func (c *Coalescer) Coalesce(sender [16]byte, frames []*frame.Frame) []*Bundle {
 
 // Decoalesce expands a bundle into individual BRC-124/128 (FrameVer 0x02) frames
 // for the per-consumer egress (edge-decoalesce). Each frame inherits the bundle's
-// flow HashKey and SubtreeID; SeqNum is left 0 — the egress side re-stamps per-tx
+// flow HashKey and SubtreeID; SeqNum is left 0; the egress side re-stamps per-tx
 // SeqNums on its own flow (the bundle SeqNum is frame-bound and does not survive
 // the split). TxIDs come from the bundle when present, else are recomputed
 // ([TxID]). The returned frames are FrameVer 0x02; a caller delivering to a
@@ -134,7 +134,7 @@ func Decoalesce(b *Bundle) []*frame.Frame {
 	return out
 }
 
-// Rebucketer re-splits bundles to a different (finer) shardBits — the relay
+// Rebucketer re-splits bundles to a different (finer) shardBits; the relay
 // operation for a cross-domain or reshard generation mismatch (BRC-142
 // §Re-bucketing). It is decoalesce + re-coalesce at the new shardBits: each
 // member is routed to its correct child group (recomputed from its TxID),
@@ -156,7 +156,7 @@ func (rb *Rebucketer) Rebucket(sender [16]byte, b *Bundle) []*Bundle {
 }
 
 // TxID computes the BSV transaction id: double-SHA256 over the raw serialised
-// transaction, in internal (non-display) byte order — matching frame.Frame.TxID.
+// transaction, in internal (non-display) byte order, matching frame.Frame.TxID.
 func TxID(tx []byte) [32]byte {
 	h := sha256.Sum256(tx)
 	return sha256.Sum256(h[:])

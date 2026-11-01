@@ -27,7 +27,7 @@ const (
 	GroupSubtreeDataAnnounce GroupIdx = 0xFFFB
 
 	// GroupSubtreeGroupAnnounce carries BRC-127 subtree group
-	// announcements — SubtreeID↔GroupID bindings advertising logical
+	// announcements: SubtreeID↔GroupID bindings advertising logical
 	// groupings of subtrees for downstream filtering.
 	GroupSubtreeGroupAnnounce GroupIdx = 0xFFFC
 

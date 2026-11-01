@@ -40,7 +40,7 @@ func SubtreeSize(buf []byte) (int, error) {
 // data multicast frame (FrameVer 0x05, hashes-only). The in-band merkle root
 // becomes the frame SubtreeID (it rode the multicast header as SubtreeID and
 // was lost on strip); the node hashes become hashes-only nodes with fee/size
-// zeroed (the receiver recomputes them). The frame is unstamped — the proxy
+// zeroed (the receiver recomputes them). The frame is unstamped; the proxy
 // stamps HashKey/SeqNum from the observed source.
 func subtreeMulticast(obj []byte) ([]byte, error) {
 	n, err := SubtreeSize(obj)

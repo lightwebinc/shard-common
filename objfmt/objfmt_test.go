@@ -646,7 +646,7 @@ func buildEFMulti(t *testing.T, nIn, nOut, inScript, outScript, spentScript int)
 
 // TestTxIDMatchesToStandard pins the invariant the streaming TxID rests on:
 // hashing the spans in place must equal SHA256d over the materialised
-// standard serialization, for every transaction shape — including the VarInt
+// standard serialization, for every transaction shape, including the VarInt
 // widths a single-input fixture never reaches.
 func TestTxIDMatchesToStandard(t *testing.T) {
 	cases := []struct {

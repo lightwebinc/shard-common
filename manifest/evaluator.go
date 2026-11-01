@@ -50,7 +50,7 @@ type Adopted struct {
 	DivergenceFields []string
 
 	// Domains is the per-plane adopted view (BRC-148), keyed by DomainID.
-	// Domain 0x0 never appears here — it stays governed by the top-level
+	// Domain 0x0 never appears here; it stays governed by the top-level
 	// ShardBits/SourceModeSSM/Successor fields. Nil when no plane
 	// descriptors, pins, or previously-adopted planes exist.
 	Domains map[uint8]DomainAdoption

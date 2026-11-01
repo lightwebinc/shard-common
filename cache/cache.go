@@ -2,14 +2,14 @@
 // create-only operation (SetNX). It is the shared substrate for the two
 // caching surfaces in the multicast stack:
 //
-//   - Dedup / claim stores — the proxy ingress gate and the listener egress
+//   - Dedup / claim stores: the proxy ingress gate and the listener egress
 //     gate (via shard-common/txidset) use SetNX as the cross-instance "who
 //     forwards this TxID" race. The hot path is short-circuited by an
 //     in-process tier-1 LRU inside txidset; a Backend is consulted only on a
 //     tier-1 miss (a novel TxID), so backend latency never touches the
 //     per-packet steady state.
 //
-//   - Frame KV cache — the retry-endpoint stores raw frames keyed by
+//   - Frame KV cache: the retry-endpoint stores raw frames keyed by
 //     HashKey||SeqNum (Set), serves them on NACK (Get), and dedups
 //     retransmissions (SetNX).
 //
@@ -43,9 +43,9 @@ import (
 type Backend interface {
 	// SetNX atomically creates key=val with the given ttl iff key is absent.
 	//
-	//   - (true, nil)  — created; the caller won the race (proceed / forward).
-	//   - (false, nil) — key already existed; another claimant holds it (suppress).
-	//   - (_, err)     — backend error; dedup callers fail open and proceed.
+	//   - (true, nil): created; the caller won the race (proceed / forward).
+	//   - (false, nil): key already existed; another claimant holds it (suppress).
+	//   - (_, err): backend error; dedup callers fail open and proceed.
 	//
 	// ttl <= 0 means "no expiry" where the backend supports it.
 	SetNX(ctx context.Context, key, val []byte, ttl time.Duration) (bool, error)

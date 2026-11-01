@@ -1,6 +1,6 @@
 // Package redis provides a Redis-protocol [cache.Backend]. It targets any
-// server speaking the Redis wire protocol — Redis, Valkey, Dragonfly, or a
-// Redis Cluster — selected by address alone. SetNX maps to SET NX EX.
+// server speaking the Redis wire protocol (Redis, Valkey, Dragonfly, or a
+// Redis Cluster), selected by address alone. SetNX maps to SET NX EX.
 //
 // All operations use the per-op timeout configured at construction and a
 // MaxRetries of -1, so dedup callers fail open quickly on a slow or

@@ -6,8 +6,8 @@ import (
 )
 
 // Throttle implements the "log-once-then-count" discipline required for
-// data-plane and repeated-error events (see the Log economy section of the
-// unified-logging plan). The first occurrence of a key in a window returns
+// data-plane and repeated-error events (see the Log economy section of
+// shard-common/docs/logging.md). The first occurrence of a key in a window returns
 // emit=true with the count so far; subsequent occurrences within the window
 // are suppressed and accumulated. When the window elapses, the next occurrence
 // emits again and reports how many were suppressed.
@@ -15,7 +15,7 @@ import (
 // It allocates only on first sight of a key and never on the suppressed path
 // beyond a map lookup + atomic-free counter increment under a short lock, so it
 // is safe on warm paths (it is NOT intended for the zero-alloc per-packet hot
-// path — those events stay at Debug and are gated by level).
+// path; those events stay at Debug and are gated by level).
 type Throttle struct {
 	window time.Duration
 	mu     sync.Mutex

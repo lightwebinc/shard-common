@@ -107,7 +107,7 @@ const (
 	RoleHintProducer      byte = 4
 	RoleHintManifestOnly  byte = 5
 	// RoleHintProducerBEEF hints the announcer publishes BEEF-plane objects
-	// (BRC-148). Informational only — never a routing/filtering input.
+	// (BRC-148). Informational only; never a routing/filtering input.
 	RoleHintProducerBEEF byte = 6
 	// RoleHintListenerBEEF hints the announcer subscribes to BEEF-plane
 	// groups (BRC-148). Informational only.
@@ -155,7 +155,7 @@ const (
 
 // DomainDescriptor is one BRC-148 per-plane entry in a manifest's Domains
 // section: the plane's shard-bit width, slot reservation, mode flags, and
-// generation — the per-domain analogue of the manifest's top-level
+// generation, the per-domain analogue of the manifest's top-level
 // ShardBits/GenerationID/Successor.
 type DomainDescriptor struct {
 	DomainID     uint8    // plane selector, 0x00–0x0E

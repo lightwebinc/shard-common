@@ -78,7 +78,7 @@ func EncodeBlockHeader(blockHash [32]byte, hashKey, seqNum uint64, header80 []by
 // The caller must not modify or reuse buf while the returned Frame is in scope.
 //
 // Possible errors: [ErrTooShort] (any datagram shorter than the fixed
-// [BlockHeaderFrameSize] — BRC-135 §Error Handling), [ErrBadMagic],
+// [BlockHeaderFrameSize]; BRC-135 §Error Handling), [ErrBadMagic],
 // [ErrBadVer], or [ErrBadBlockHeaderLen].
 func DecodeBlockHeader(buf []byte) (*Frame, error) {
 	if len(buf) < HeaderSizeLegacy {
