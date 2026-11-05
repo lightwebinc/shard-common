@@ -239,11 +239,31 @@ func DecodeBEEFRecord(buf []byte) (*BEEFRecord, int, error) {
 // 1..[BEEFMaxTopics], each valid UTF-8 of 1..[BEEFMaxTopicLen] bytes; the
 // object must be non-empty.
 func EncodeBEEFRecord(topics []string, object []byte) ([]byte, error) {
+	hdr, err := EncodeBEEFRecordHeader(topics, len(object))
+	if err != nil {
+		return nil, err
+	}
+	out := make([]byte, 0, len(hdr)+len(object))
+	out = append(out, hdr...)
+	return append(out, object...), nil
+}
+
+// EncodeBEEFRecordHeader serialises a submission record's envelope for an
+// object of objectLen bytes: everything [EncodeBEEFRecord] writes before the
+// object, with the same validation. A caller that knows the object's length
+// before it has the bytes (an HTTP body with a Content-Length) can read the
+// object straight after this header into one buffer, which is then the
+// record, and a slice of it the object, without copying the object into a
+// record of its own.
+func EncodeBEEFRecordHeader(topics []string, objectLen int) ([]byte, error) {
 	if len(topics) < 1 || len(topics) > BEEFMaxTopics {
 		return nil, fmt.Errorf("%w: topic count %d outside [1, %d]", ErrMalformed, len(topics), BEEFMaxTopics)
 	}
-	if len(object) == 0 {
+	if objectLen <= 0 {
 		return nil, fmt.Errorf("%w: empty object", ErrMalformed)
+	}
+	if int64(objectLen) > math.MaxUint32 {
+		return nil, fmt.Errorf("%w: object of %d bytes", ErrMalformed, objectLen)
 	}
 	size := beefRecordMin
 	for _, t := range topics {
@@ -252,7 +272,7 @@ func EncodeBEEFRecord(topics []string, object []byte) ([]byte, error) {
 		}
 		size += 1 + len(t)
 	}
-	size += 4 + len(object)
+	size += 4
 
 	out := make([]byte, 0, size)
 	out = binary.BigEndian.AppendUint16(out, BEEFRecordTag)
@@ -261,9 +281,7 @@ func EncodeBEEFRecord(topics []string, object []byte) ([]byte, error) {
 		out = append(out, byte(len(t)))
 		out = append(out, t...)
 	}
-	out = binary.BigEndian.AppendUint32(out, uint32(len(object)))
-	out = append(out, object...)
-	return out, nil
+	return binary.BigEndian.AppendUint32(out, uint32(objectLen)), nil
 }
 
 // EncodeBEEFDelivery serialises the down-direction delivery record:
