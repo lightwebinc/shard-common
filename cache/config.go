@@ -20,6 +20,10 @@ type Config struct {
 	// other backends.
 	MemoryMaxKeys int
 
+	// MemoryMaxBytes bounds the bytes of the in-memory backend's values (0 =
+	// unbounded). Ignored by other backends.
+	MemoryMaxBytes int
+
 	// RedisAddr is the host:port of a Redis-protocol server. Required when
 	// Backend == BackendRedis.
 	RedisAddr string
@@ -57,6 +61,9 @@ func RegisterFlags(fs *flag.FlagSet, flagPrefix, envPrefix string) *Config {
 	fs.IntVar(&c.MemoryMaxKeys, flagPrefix+"cache-memory-max-keys",
 		envInt(envPrefix+"CACHE_MEMORY_MAX_KEYS", 0),
 		"in-memory backend key cap (0 = unbounded)")
+	fs.IntVar(&c.MemoryMaxBytes, flagPrefix+"cache-memory-max-bytes",
+		envInt(envPrefix+"CACHE_MEMORY_MAX_BYTES", 0),
+		"in-memory backend cap on the bytes of its values (0 = unbounded)")
 	fs.StringVar(&c.RedisAddr, flagPrefix+"redis-addr",
 		envStr(envPrefix+"REDIS_ADDR", ""),
 		"Redis-protocol server host:port (Redis/Valkey/Dragonfly); required when cache-backend=redis")
