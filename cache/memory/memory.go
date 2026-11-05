@@ -30,6 +30,11 @@
 // the entry with the earliest deadline, so no entry is evicted while one that
 // expires sooner remains in its shard. Entries that never expire are evicted
 // only when the shard holds no entry with a TTL, least recently written first.
+//
+// A byte cap (Options.MaxBytes) bounds the lengths of the values the same
+// way: each shard holds at most cap/64 bytes, and a write that would pass it
+// expires what it can, then evicts in the same order until the value fits.
+// A value larger than a shard's share is still stored, alone.
 package memory
 
 import (
@@ -70,6 +75,13 @@ type Options struct {
 	// MaxKeys is the soft key cap across all shards (0 = unbounded).
 	MaxKeys int
 
+	// MaxBytes is the soft cap on the bytes of the values held across all
+	// shards (0 = unbounded). A cache of fragments in flight costs its rate
+	// times its window in memory; a key cap bounds that only for values of one
+	// size, and a process whose heap sits at its memory limit spends its CPU
+	// collecting garbage. With both set, a write makes room for both.
+	MaxBytes int
+
 	// ExpireInterval is the period of the background expirer (<= 0 selects
 	// DefaultExpireInterval).
 	ExpireInterval time.Duration
@@ -79,8 +91,9 @@ type Options struct {
 // independently locked maps so concurrent workers do not serialize on a
 // single mutex.
 type Backend struct {
-	shards   [shardCount]shard
-	perShard int // entry cap per shard (0 = unbounded)
+	shards        [shardCount]shard
+	perShard      int // entry cap per shard (0 = unbounded)
+	perShardBytes int // value bytes cap per shard (0 = unbounded)
 
 	stop     chan struct{} // closed by Close
 	done     chan struct{} // closed when the expirer exits
@@ -100,6 +113,8 @@ type shard struct {
 	// items counts the items in all queues. Every entry has a current item,
 	// so items - len(data) is the number of stale items.
 	items int
+	// bytes sums the lengths of the values in data.
+	bytes int
 }
 
 // entry is a cached value. A positive deadline is its expiry on the monotonic
@@ -156,6 +171,9 @@ func NewWithOptions(opts Options) *Backend {
 	}
 	if opts.MaxKeys > 0 {
 		b.perShard = max(opts.MaxKeys/shardCount, 1)
+	}
+	if opts.MaxBytes > 0 {
+		b.perShardBytes = max(opts.MaxBytes/shardCount, 1)
 	}
 	for i := range b.shards {
 		b.shards[i].data = make(map[string]entry)
@@ -214,7 +232,10 @@ func (b *Backend) Get(_ context.Context, key []byte) ([]byte, error) {
 func (b *Backend) Del(_ context.Context, key []byte) error {
 	s := b.shardFor(key)
 	s.mu.Lock()
-	delete(s.data, string(key))
+	if e, ok := s.data[string(key)]; ok {
+		s.bytes -= len(e.value)
+		delete(s.data, string(key))
+	}
 	s.mu.Unlock()
 	return nil
 }
@@ -253,6 +274,22 @@ func (b *Backend) put(s *shard, key, val []byte, ttl time.Duration, now int64, p
 		s.makeRoom(now, b.perShard)
 	}
 	k := string(key)
+	if b.perShardBytes > 0 {
+		need := len(val)
+		if exists {
+			need -= len(prev.value)
+		}
+		if need > 0 && s.bytes+need > b.perShardBytes {
+			s.makeRoomBytes(now, b.perShardBytes-len(val))
+			// Making room may have evicted the key itself: it is then a new
+			// key, with no item of its own left in any queue.
+			prev, exists = s.data[k]
+		}
+	}
+	if exists {
+		s.bytes -= len(prev.value)
+	}
+	s.bytes += len(val)
 	q := &s.forever
 	var deadline int64
 	// A deadline beyond the int64 range is never reached, so such a TTL is
@@ -298,6 +335,17 @@ func (s *shard) queueFor(ttl time.Duration) *queue {
 func (s *shard) makeRoom(now int64, limit int) {
 	s.expire(now, math.MaxInt)
 	for len(s.data) >= limit {
+		if !s.evict() {
+			return
+		}
+	}
+}
+
+// makeRoomBytes brings the shard's value bytes to at most limit: it removes
+// every expired entry, then evicts while it is over. Callers hold s.mu.
+func (s *shard) makeRoomBytes(now int64, limit int) {
+	s.expire(now, math.MaxInt)
+	for s.bytes > limit {
 		if !s.evict() {
 			return
 		}
@@ -353,6 +401,7 @@ func (s *shard) pop(q *queue) {
 	it := q.pop()
 	s.items--
 	if s.current(it) {
+		s.bytes -= len(s.data[it.key].value)
 		delete(s.data, it.key)
 	}
 }

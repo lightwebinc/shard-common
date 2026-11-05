@@ -23,7 +23,7 @@ func Open(_ context.Context, cfg Config) (Backend, error) {
 	case BackendNone, "":
 		return nil, nil
 	case BackendMemory:
-		return memory.New(cfg.MemoryMaxKeys), nil
+		return memory.NewWithOptions(memory.Options{MaxKeys: cfg.MemoryMaxKeys, MaxBytes: cfg.MemoryMaxBytes}), nil
 	case BackendRedis:
 		return redis.New(redis.Options{
 			Addr:        cfg.RedisAddr,
