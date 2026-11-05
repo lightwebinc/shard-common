@@ -399,3 +399,22 @@ func TestBEEFMulticastRecordCarriesNames(t *testing.T) {
 		t.Fatal("bare object accepted as a record")
 	}
 }
+
+func TestEncodeBEEFRecordHeader(t *testing.T) {
+	topics := []string{"tm_a", "tm_bb"}
+	hdr, err := EncodeBEEFRecordHeader(topics, len(beefObj))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, _ := EncodeBEEFRecord(topics, beefObj)
+	got := append(append([]byte{}, hdr...), beefObj...)
+	if !bytes.Equal(got, want) {
+		t.Fatalf("header then object differs from the record:\n%x\n%x", got, want)
+	}
+	if _, err := EncodeBEEFRecordHeader(topics, 0); !errors.Is(err, ErrMalformed) {
+		t.Error("empty object accepted")
+	}
+	if _, err := EncodeBEEFRecordHeader(nil, 1); !errors.Is(err, ErrMalformed) {
+		t.Error("no topics accepted")
+	}
+}
