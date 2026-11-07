@@ -61,7 +61,7 @@ for the system-level designs.
 
 ## Requirements
 
-- Go 1.26 or later (`go.mod` floor: 1.26.2)
+- Go 1.26 or later
 
 ## Build
 
