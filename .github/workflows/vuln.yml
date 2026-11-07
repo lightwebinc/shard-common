@@ -1,5 +1,5 @@
 # Scheduled vulnerability scan. ci.yml already runs govulncheck on every push,
-# but a repo nobody commits to never re-scans — and an advisory published against
+# but a repo nobody commits to never re-scans, and an advisory published against
 # a dependency does not wait for a commit. shard-common is the widest blast
 # radius in the fleet: every data-plane and business binary imports it, so a
 # vulnerable dependency here reaches all of them.
@@ -7,7 +7,7 @@ name: Vuln scan
 
 on:
   schedule:
-    # Tuesdays and Fridays 03:30 UTC — ahead of the consumers (04:00+) so a
+    # Tuesdays and Fridays 03:30 UTC, ahead of the consumers (04:00+) so a
     # finding here is visible before the repos that vendor it report. Both days
     # track Renovate's Tue+Fri wave; the 30-minute lead is what orders them.
     - cron: "30 3 * * 2,5"

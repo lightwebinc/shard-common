@@ -39,7 +39,7 @@ import (
 //
 // All methods are safe for concurrent use. Keys and values are opaque byte
 // slices; callers own namespacing (prefixes are not applied by the backend).
-// A missing key is reported as (nil, nil) by Get — never as an error.
+// A missing key is reported as (nil, nil) by Get, never as an error.
 type Backend interface {
 	// SetNX atomically creates key=val with the given ttl iff key is absent.
 	//

@@ -1,14 +1,14 @@
 // Package pow provides cheap, stateless proof-of-work validation of a BSV
 // block header. It is the permissionless complement to operator admission
 // control: anyone may announce a block, but the announcement must carry real
-// work — verifying costs one double-SHA256 and a big-int compare, while
+// work: verifying costs one double-SHA256 and a big-int compare, while
 // forging a passing header costs work proportional to the claimed difficulty.
 //
 // This is deliberately NOT full consensus validation: it does not know the
 // chain, the height, or whether nBits is the correct retarget value. It
-// answers one question cheaply — "does this 80-byte header hash under the
+// answers one question cheaply: "does this 80-byte header hash under the
 // target it claims, and is that target at least as hard as a configured
-// floor?" — which is enough to reject spam at ingress. Full validation
+// floor?", which is enough to reject spam at ingress. Full validation
 // belongs to the consuming node (Teranode), which has chain context.
 package pow
 
@@ -47,7 +47,7 @@ func NBits(header []byte) uint32 {
 func CompactToTarget(nBits uint32) *big.Int {
 	exponent := nBits >> 24
 	mantissa := nBits & 0x007fffff
-	if nBits&0x00800000 != 0 { // negative flag set — invalid target
+	if nBits&0x00800000 != 0 { // negative flag set: invalid target
 		return nil
 	}
 	if mantissa == 0 {
@@ -60,7 +60,7 @@ func CompactToTarget(nBits uint32) *big.Int {
 		t.SetUint64(uint64(mantissa))
 		t.Lsh(t, 8*(uint(exponent)-3))
 	}
-	// Targets wider than 256 bits are overflow — reject.
+	// Targets wider than 256 bits are overflow: reject.
 	if t.BitLen() > 256 {
 		return nil
 	}

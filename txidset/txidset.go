@@ -9,18 +9,18 @@
 // bounded by the configured capacity (~48 B/entry).
 //
 // Tier 2 is an optional atomic SetNX claim against a pluggable [cache.Backend]
-// (memory, redis, aerospike — see docs/cache-backend.md). When a backend is
+// (memory, redis, aerospike: see docs/cache-backend.md). When a backend is
 // configured, a tier-1 miss falls through to it. The winner of the SetNX race
 // proceeds; losers are suppressed. Backend errors fail open: the caller
 // proceeds and an error is reported via the returned err.
 //
 // # Two operations
 //
-//   - Claim(prefix, txid) — synchronous; gates the caller's forward decision.
+//   - Claim(prefix, txid): synchronous; gates the caller's forward decision.
 //     Used by the proxy ingress path and the listener egress path. Errors are
 //     surfaced so callers can record fail-open metrics.
 //
-//   - Mark(prefix, txid) — fire-and-forget; populates the network-set so the
+//   - Mark(prefix, txid): fire-and-forget; populates the network-set so the
 //     proxy can later observe "TxID is already on the network". Used by the
 //     listener's optional courtesy write to the proxy's ingress namespace.
 //     Errors are reported via a Recorder callback supplied at construction.
@@ -77,9 +77,9 @@ type Recorder interface {
 //
 // Tier 2 is supplied as a [cache.Backend]. Two ways to provide it:
 //
-//   - Backend set — the Store uses the injected backend (any kind: redis,
+//   - Backend set, the Store uses the injected backend (any kind: redis,
 //     aerospike, memory). The caller owns the backend's lifecycle and Close.
-//   - Backend nil + RedisAddr set — DEPRECATED convenience: the Store builds
+//   - Backend nil + RedisAddr set: DEPRECATED convenience: the Store builds
 //     and owns a redis backend internally (preserves the historical
 //     constructor). Prefer building a backend with cache.Open and injecting it.
 //
@@ -122,7 +122,7 @@ type markJob struct {
 // New constructs a Store. Tier 2 is cfg.Backend when set (the caller owns its
 // lifecycle). When Backend is nil and cfg.RedisAddr is set (deprecated
 // convenience), New builds and owns an internal redis backend; on dial/ping
-// failure it returns the error rather than silently degrading — callers that
+// failure it returns the error rather than silently degrading: callers that
 // want fail-open boot behaviour can log-and-continue with a tier-1-only
 // Config.
 //
@@ -188,10 +188,10 @@ func New(cfg Config) (*Store, error) {
 //
 // Semantics:
 //
-//   - (true, nil)  — caller is the first to claim; proceed (forward / multicast).
-//   - (false, nil) — another claimant already holds the key (local or backend);
+//   - (true, nil) : caller is the first to claim; proceed (forward / multicast).
+//   - (false, nil): another claimant already holds the key (local or backend);
 //     suppress.
-//   - (true, err)  — backend call failed; fail-open. Caller should proceed and
+//   - (true, err) : backend call failed; fail-open. Caller should proceed and
 //     log/count the error. Local set is still updated so subsequent same-process
 //     calls dedup correctly.
 //
@@ -237,7 +237,7 @@ func (s *Store) Claim(prefix string, txid [32]byte) (bool, error) {
 // same process short-circuit.
 //
 // When the work queue is full the Mark is dropped (counted via Recorder.MarkDropped)
-// rather than blocking the caller — Mark is a courtesy signal, never on the
+// rather than blocking the caller: Mark is a courtesy signal, never on the
 // critical path.
 //
 // In local-only mode (no Redis configured) Mark only updates the local set;

@@ -3,7 +3,7 @@
 // lane grammar), the BRC-149 delivery record (down-direction), and the
 // single-frame multicast wrap.
 //
-// Unlike the other classes, a ClassBEEF lane does not carry bare objects —
+// Unlike the other classes, a ClassBEEF lane does not carry bare objects:
 // BEEF bytes are not length-walkable without a full structural parse, which
 // the fabric never performs. The lane object is therefore the *submission
 // record*, an explicit length-carrying envelope:
@@ -111,7 +111,7 @@ func BEEFDeliverableTopicIDs(bf *frame.BEEFFrame) [][32]byte {
 	return ids
 }
 
-// BEEFVersionWord returns the object's version word — the uint32 LE of its
+// BEEFVersionWord returns the object's version word, the uint32 LE of its
 // first four bytes (the version-filter input). ok is false when the object
 // is shorter than four bytes.
 func BEEFVersionWord(obj []byte) (word uint32, ok bool) {
@@ -123,9 +123,9 @@ func BEEFVersionWord(obj []byte) (word uint32, ok bool) {
 
 // IsBEEFObject reports whether obj leads with a marker from the BRC-149
 // version-word table: [BEEFMarkerV1] (BRC-62), [BEEFMarkerV2] (BRC-96), or
-// [AtomicBEEFMarker] (BRC-95). The table is closed — BRC-149 requires a
+// [AtomicBEEFMarker] (BRC-95). The table is closed: BRC-149 requires a
 // record whose object does not lead with one of these markers to be
-// rejected — so an unallocated word in the 0xEFBExxxx range is NOT a BEEF
+// rejected, so an unallocated word in the 0xEFBExxxx range is NOT a BEEF
 // object. It is a fixed-offset sanity gate only: no structure is parsed.
 func IsBEEFObject(obj []byte) bool {
 	w, ok := BEEFVersionWord(obj)
@@ -135,11 +135,11 @@ func IsBEEFObject(obj []byte) bool {
 	return w == BEEFMarkerV1 || w == BEEFMarkerV2 || w == AtomicBEEFMarker
 }
 
-// TopicID returns SHA-256 of the UTF-8 topic name — the BRC-148 topic
+// TopicID returns SHA-256 of the UTF-8 topic name, the BRC-148 topic
 // identifier and BEEF-plane shard key.
 func TopicID(name string) [32]byte { return sha256.Sum256([]byte(name)) }
 
-// ContentID returns SHA-256d (double SHA-256) of the complete frame payload —
+// ContentID returns SHA-256d (double SHA-256) of the complete frame payload:
 // the BRC-148 object identity. The payload is the submission record when the
 // ingress carried one (so the same object under a different label set is a
 // distinct submission) and the bare object otherwise.
@@ -215,7 +215,7 @@ func BEEFRecordSize(buf []byte) (int, error) {
 // DecodeBEEFRecord parses the submission record at the start of buf,
 // returning the record and the number of bytes consumed. Record.Object is a
 // zero-copy slice into buf. Like the rest of objfmt it is byte-only: the
-// object's leading marker is NOT validated here — callers gate admission
+// object's leading marker is NOT validated here: callers gate admission
 // with [IsBEEFObject].
 func DecodeBEEFRecord(buf []byte) (*BEEFRecord, int, error) {
 	n, err := BEEFRecordSize(buf)
@@ -386,7 +386,7 @@ func BEEFMulticastBytes(topicID [32]byte, obj []byte) ([]byte, error) {
 
 // beefStrip extracts the verbatim payload (record or bare object) from a
 // FrameVer 0x09 multicast frame (the [StripBytes] down-direction for
-// ClassBEEF). The TopicID is dropped — a stripped lane consumer that needs
+// ClassBEEF). The TopicID is dropped, a stripped lane consumer that needs
 // it uses the delivery record ([EncodeBEEFDelivery]) instead.
 func beefStrip(mcast []byte) ([]byte, error) {
 	bf, err := frame.DecodeBEEF(mcast)

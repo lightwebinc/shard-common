@@ -6,7 +6,7 @@
 // BSV transaction sharding pipeline. BRC-142 bundles (FrameVer 0x08) are only
 // detected here ([IsBundle]); their codec is the sibling bundle package.
 //
-// # Wire format — BRC-12 (legacy, 44 bytes)
+// # Wire format: BRC-12 (legacy, 44 bytes)
 //
 // All multi-byte integers are big-endian.
 //
@@ -20,24 +20,24 @@
 //	    40     4  Payload length   uint32
 //	    44     *  BSV tx payload
 //
-// # Wire format — BRC-124/BRC-128 (92 bytes)
+// # Wire format: BRC-124/BRC-128 (92 bytes)
 //
 // All multi-byte integers are big-endian.
 //
 //	Offset  Size  Align  Field          Value / notes
 //	------  ----  -----  -----          -------------
-//	     0     4   —     Network magic  0xE3E1F3E8 (BSV mainnet P2P magic)
-//	     4     2   —     Protocol ver   0x02BF = 703 (BSV node version baseline)
-//	     6     1   —     Frame version  0x02 (BRC-124/BRC-128)
-//	     7     1   —     Reserved       0x00
+//	     0     4   -     Network magic  0xE3E1F3E8 (BSV mainnet P2P magic)
+//	     4     2   -     Protocol ver   0x02BF = 703 (BSV node version baseline)
+//	     6     1   -     Frame version  0x02 (BRC-124/BRC-128)
+//	     7     1   -     Reserved       0x00
 //	     8    32   8B    TxID           raw 256-bit txid (NOT display-reversed)
 //	    40     8   8B    HashKey        XXH64(senderIPv6 ∥ groupIdx ∥ subtreeID); stable per flow; 0 = unset
 //	    48     8   8B    SeqNum         Monotonic counter per flow; 0 = unset/unstamped
 //	    56    32   8B    SubtreeID      32-byte batch identifier; zeros = unset
 //	    88     4   8B    PayloadLen     uint32 BE (payload byte length)
-//	    92     *   —     Payload        raw serialised BSV transaction
+//	    92     *   -     Payload        raw serialised BSV transaction
 //
-// # Wire format — BRC-130 (104 bytes, fragmentation)
+// # Wire format: BRC-130 (104 bytes, fragmentation)
 //
 // Extends BRC-124 with a 12-byte fragment extension at bytes 92–103.
 // Bytes 0–91 are layout-compatible with BRC-124 (same field offsets).
@@ -53,30 +53,30 @@
 //	   104     *  Fragment data
 //
 // Each fragment carries an independent HashKey and SeqNum stamped by the
-// proxy. Listeners reassemble fragments keyed by TxID — except V9 (BRC-149
+// proxy. Listeners reassemble fragments keyed by TxID, except V9 (BRC-149
 // BEEF) fragments, which key on the (ContentID, TopicID) pair as
-// SHA-256(ContentID ∥ TopicID) — and verify
+// SHA-256(ContentID ∥ TopicID), and verify
 // SHA256d(reassembled payload) == TxID after completion (for V2 fragments).
 // For V5 subtree-data fragments, SHA256d is not applicable; optional
 // Merkle-root verification is used instead.
 //
-// # Wire format — BRC-132 (92 bytes, subtree data)
+// # Wire format: BRC-132 (92 bytes, subtree data)
 //
 // BRC-132 uses the same 92-byte header layout as BRC-124 but with
 // FrameVer 0x05 and a MsgType byte at offset 7.
 //
 //	Offset  Size  Align  Field          Value / notes
 //	------  ----  -----  -----          -------------
-//	     0     4   —     Network magic  0xE3E1F3E8
-//	     4     2   —     Protocol ver   0x02BF
-//	     6     1   —     Frame version  0x05 (BRC-132 subtree data)
-//	     7     1   —     MsgType        0x01=HashesOnly, 0x02=FullNodes
+//	     0     4   -     Network magic  0xE3E1F3E8
+//	     4     2   -     Protocol ver   0x02BF
+//	     6     1   -     Frame version  0x05 (BRC-132 subtree data)
+//	     7     1   -     MsgType        0x01=HashesOnly, 0x02=FullNodes
 //	     8    32   8B    SubtreeID      SHA-256 Merkle root hash (content + reassembly key)
 //	    40     8   8B    HashKey        XXH64(senderIPv6 ∥ 0xFFFB ∥ subtreeID); stamped by proxy
 //	    48     8   8B    SeqNum         Monotonic per-flow counter; 0 = unset/unstamped
 //	    56    32   8B    LayoutPad32    All zeros (no secondary subtree ID; field kept for uniform HeaderSize)
 //	    88     4   8B    PayloadLen     uint32 BE
-//	    92     *   —     Payload        Subtree data (see SubtreeDataPayload)
+//	    92     *   -     Payload        Subtree data (see SubtreeDataPayload)
 //
 // # HashKey and SeqNum
 //
@@ -102,7 +102,7 @@
 // The payload field carries a raw BSV transaction in the same serialisation
 // format as the BSV P2P "tx" message payload: version (4 bytes LE), input
 // vector, output vector, locktime (4 bytes LE). No P2P message envelope
-// wraps it — the frame header above serves that role.
+// wraps it, the frame header above serves that role.
 package frame
 
 import (
@@ -279,7 +279,7 @@ var (
 // Payload is a zero-copy slice pointing into the buffer passed to [Decode];
 // the buffer must remain valid for the lifetime of the Frame.
 type Frame struct {
-	Version   byte     // FrameVerV1, FrameVerV2, or FrameVerV6 — set by Decode / DecodeAnchor
+	Version   byte     // FrameVerV1, FrameVerV2, or FrameVerV6: set by Decode / DecodeAnchor
 	TxID      [32]byte // Raw 256-bit transaction ID (internal byte order)
 	HashKey   uint64   // Stable per-flow identifier: XXH64(senderIPv6 ∥ groupIdx ∥ subtreeID); 0 = unset
 	SeqNum    uint64   // Monotonic per-flow counter starting at 1; 0 = unset/unstamped

@@ -12,7 +12,7 @@
 //
 //	groupIndex = (txid[0:4] as uint32) >> (32 - N)
 //
-// Using the top bits — rather than a modulo operation on the bottom bits —
+// Using the top bits, rather than a modulo operation on the bottom bits:
 // gives consistent-hashing behaviour: when N increases by 1, every existing
 // group splits into exactly two child groups. Subscribers only need to join
 // additional groups; no existing subscriptions become invalid.
@@ -36,7 +36,7 @@
 // N = 12, and its binaries enforce N in [1, 12].
 //
 // A BRC-148 object plane lives in the free space at its own domain base and
-// takes N in [0, 15] — see [ValidatePlane] and plane.go. N = 0 is the
+// takes N in [0, 15]: see [ValidatePlane] and plane.go. N = 0 is the
 // ratified BEEF-plane default: a single group per plane (every key maps to
 // the plane base), the low-membership posture that trades fabric selectivity
 // for minimal group-membership and MFC state. The deployed binaries
@@ -73,7 +73,7 @@ type Engine struct {
 //     group key. The transaction plane (domain 0x0) is bounded at 12 by
 //     BRC-129's 0x0000–0x0FFF zoning; a BRC-148 object plane accepts
 //     [0, 15], with 0 the ratified single-group default (every key maps to
-//     the plane base). New does not validate — [ValidatePlane] is the
+//     the plane base). New does not validate: [ValidatePlane] is the
 //     validator, and each binary's own flag parser applies its deployed cap.
 func New(mcPrefix uint16, groupID uint16, shardBits uint) *Engine {
 	return &Engine{

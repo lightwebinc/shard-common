@@ -1,4 +1,4 @@
-// Package objfmt implements the push (non-multicast) object frame codecs —
+// Package objfmt implements the push (non-multicast) object frame codecs:
 // the header-stripped wire forms used for unicast delivery to and submission
 // from consumers reached by push (e.g. round-robin SDA delivery over a
 // tunnel) rather than multicast announce/pull.
@@ -9,18 +9,18 @@
 // there is no outer length prefix and no type tag. A body is self-delimiting
 // by its own structure:
 //
-//   - ClassTx — a BSV transaction, BRC-12 (raw) or BRC-30 (EF); delimited by
+//   - ClassTx, a BSV transaction, BRC-12 (raw) or BRC-30 (EF); delimited by
 //     walking the transaction structure (version, input/output vectors,
 //     locktime). A BRC-12/30 stream is byte-for-byte the transactions.
-//   - ClassSubtree — BRC-143 subtree push frame; delimited by NodeCount.
-//   - ClassBlock — BRC-144 block push frame; delimited by its counts.
-//   - ClassBEEFDelivery — BRC-149 delivery record; delimited by its own u32BE
+//   - ClassSubtree: BRC-143 subtree push frame; delimited by NodeCount.
+//   - ClassBlock: BRC-144 block push frame; delimited by its counts.
+//   - ClassBEEFDelivery: BRC-149 delivery record; delimited by its own u32BE
 //     object length.
-//   - ClassBlockHeader — a bare 80-byte BSV block header; fixed size.
+//   - ClassBlockHeader, a bare 80-byte BSV block header; fixed size.
 //
 // Three classes wrap to a multicast frame: ClassTx to BRC-124/128,
 // ClassSubtree to BRC-132, and ClassBlock to the fabric block frame (the
-// BRC-144 body carried verbatim) — see [MulticastBytes]. ClassBEEF is admitted
+// BRC-144 body carried verbatim): see [MulticastBytes]. ClassBEEF is admitted
 // via the proxy's SubmitBEEF submission-record expansion, not [MulticastBytes].
 //
 // ClassBEEFDelivery and ClassBlockHeader are DELIVERY-SIDE ONLY: they are the
@@ -38,14 +38,14 @@
 // (up) via [MulticastFrame].
 //
 // objfmt is byte-only: it packs, sizes, and unpacks bytes. It performs no
-// object validation (no script checks, no merkle verification) — the edge
+// object validation (no script checks, no merkle verification), the edge
 // moves bytes; the consumer validates.
 package objfmt
 
 import "errors"
 
 // Class selects an object-class codec. It is an internal lane/dispatch
-// selector — never an on-wire byte (lanes are single-class, frames are bare).
+// selector, never an on-wire byte (lanes are single-class, frames are bare).
 type Class uint8
 
 const (
@@ -55,7 +55,7 @@ const (
 	ClassSubtree
 	// ClassBlock is a BRC-144 block push frame.
 	ClassBlock
-	// ClassBEEF is a BRC-149 BEEF submission record (not a bare BEEF object —
+	// ClassBEEF is a BRC-149 BEEF submission record (not a bare BEEF object:
 	// BEEF bytes are not length-walkable, so the lane carries the explicit
 	// length-carrying record; see beef.go).
 	ClassBEEF
@@ -120,7 +120,7 @@ var (
 	ErrObjectTooLarge = errors.New("objfmt: object exceeds maximum size")
 
 	// ErrNotStrippable reports a well-formed multicast frame that carries no
-	// full push object to strip for delivery — e.g. a BRC-131 block-control
+	// full push object to strip for delivery, e.g. a BRC-131 block-control
 	// frame that is a lossy native BlockAnnounce (or a coinbase) rather than a
 	// verbatim BRC-144 body. The caller counts it as a non-deliverable class
 	// drop, not corruption.

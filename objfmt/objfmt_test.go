@@ -161,7 +161,7 @@ func TestTxIDStandardVsEF(t *testing.T) {
 		t.Fatal(err)
 	}
 	if idStd != idEF {
-		t.Fatal("TxID(EF) != TxID(standard) — EF extras must be excluded")
+		t.Fatal("TxID(EF) != TxID(standard): EF extras must be excluded")
 	}
 
 	first := sha256.Sum256(std)
