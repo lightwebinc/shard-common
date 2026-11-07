@@ -2,8 +2,10 @@
 
 ## 1. Overview
 
-The BSV sharding pipeline transports raw BSV transactions over IPv6 UDP (or TCP
-for reliable delivery) using a compact binary frame format. Every frame begins
+The BSV sharding pipeline transports raw BSV transactions over IPv6 multicast
+UDP using a compact binary frame format; submitters reach the proxy over TCP
+(the standard, an acknowledged stream) or UDP (lossy: a dropped datagram is a
+lost submission). Every frame begins
 with the BSV mainnet P2P network magic so that standard firewall rules and
 network monitors already configured for BSV traffic classify shard datagrams
 correctly.

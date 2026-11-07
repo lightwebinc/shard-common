@@ -43,6 +43,12 @@ type Backend interface {
 Construction is via `cache.Open(ctx, cache.Config)` (fail-closed: dials and
 verifies redis/aerospike, returns an error rather than a degraded backend).
 `Config.Backend` selects `memory | redis | aerospike | none`.
+`cache.RegisterFlags(fs, flagPrefix, envPrefix)` wires the standard flag set
+(`cache-backend`, `cache-memory-max-keys`, `cache-memory-max-bytes`,
+`redis-addr`, `aerospike-hosts`, `aerospike-namespace`, `aerospike-set`,
+`cache-dial-timeout`, `cache-op-timeout`, each with an UPPERCASE env
+equivalent) onto a `flag.FlagSet` and returns the `Config`; services with
+bespoke flag names fill the struct themselves.
 
 ## Shipped backends
 
@@ -69,6 +75,16 @@ full shard first expires what it can, then evicts the entry with the earliest
 deadline, so no entry is evicted while one that expires sooner remains in its
 shard. Entries that never expire are evicted only when the shard holds no
 TTL'd entry, least recently written first.
+
+A byte cap (`-cache-memory-max-bytes`) bounds the lengths of the values the
+same way: each shard holds at most cap/64 bytes, and a write that would pass
+it expires what it can, then evicts in the same order until the value fits. A
+value larger than a shard's share is still stored, alone. A key cap bounds
+memory only for values of one size, so a frame cache sets the byte cap. With
+both set, a write makes room for both. Both are `0` (unbounded) by default;
+in code they are `Config.MemoryMaxKeys` / `Config.MemoryMaxBytes`
+(`memory.Options.MaxKeys` / `MaxBytes` when constructing the backend
+directly).
 
 Callers use a handful of fixed TTLs. Each distinct TTL opens a queue that
 expiry and eviction must visit, so deriving a distinct TTL per write would
