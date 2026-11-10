@@ -216,6 +216,17 @@ func (b *Backend) Set(_ context.Context, key, val []byte, ttl time.Duration) err
 	return nil
 }
 
+// SetOwned is Set without the copy: the backend keeps val itself, so the
+// caller must not use it after the call ([cache.OwnedSetter]).
+func (b *Backend) SetOwned(_ context.Context, key, val []byte, ttl time.Duration) error {
+	s := b.shardFor(key)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	prev, ok := s.data[string(key)]
+	b.putValue(s, key, val, ttl, monoNow(), prev, ok)
+	return nil
+}
+
 // Get returns the live value for key, or (nil, nil) on miss or expiry.
 func (b *Backend) Get(_ context.Context, key []byte) ([]byte, error) {
 	s := b.shardFor(key)
@@ -266,10 +277,15 @@ func (b *Backend) Close() error {
 	return nil
 }
 
-// put writes key=val at now. When exists, prev is the entry it replaces (live
-// or expired), so no room is needed. Callers hold s.mu, and read now under it
-// so each TTL queue stays sorted.
+// put writes a copy of val under key at now (see putValue).
 func (b *Backend) put(s *shard, key, val []byte, ttl time.Duration, now int64, prev entry, exists bool) {
+	b.putValue(s, key, clone(val), ttl, now, prev, exists)
+}
+
+// putValue writes key=val at now and keeps val itself. When exists, prev is
+// the entry it replaces (live or expired), so no room is needed. Callers hold
+// s.mu, and read now under it so each TTL queue stays sorted.
+func (b *Backend) putValue(s *shard, key, val []byte, ttl time.Duration, now int64, prev entry, exists bool) {
 	if !exists && b.perShard > 0 && len(s.data) >= b.perShard {
 		s.makeRoom(now, b.perShard)
 	}
@@ -301,7 +317,7 @@ func (b *Backend) put(s *shard, key, val []byte, ttl time.Duration, now int64, p
 		s.writes++
 		deadline = -s.writes
 	}
-	s.data[k] = entry{value: clone(val), deadline: deadline}
+	s.data[k] = entry{value: val, deadline: deadline}
 	if exists && prev.deadline == deadline {
 		// A rewrite within one clock tick: the earlier item carries this
 		// deadline too and stays the key's current item.

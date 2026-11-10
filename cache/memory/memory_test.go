@@ -537,3 +537,56 @@ func TestConcurrentUse(t *testing.T) {
 		}
 	}
 }
+
+// TestSetOwnedKeepsTheValue: SetOwned stores the caller's slice itself (no
+// copy), Set stores a copy, and both count toward the byte cap alike.
+func TestSetOwnedKeepsTheValue(t *testing.T) {
+	ctx := context.Background()
+	b := NewWithOptions(Options{MaxBytes: 64 * 1000})
+	defer func() { _ = b.Close() }()
+	owned := []byte("owned value")
+	if err := b.SetOwned(ctx, []byte("a"), owned, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := b.Get(ctx, []byte("a"))
+	if len(got) != len(owned) || &got[0] != &owned[0] {
+		t.Fatal("SetOwned copied the value")
+	}
+	lent := []byte("lent value")
+	if err := b.Set(ctx, []byte("b"), lent, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = b.Get(ctx, []byte("b"))
+	if string(got) != "lent value" || &got[0] == &lent[0] {
+		t.Fatal("Set kept the caller's slice")
+	}
+	// A rewrite through either path replaces the value and its bytes.
+	if err := b.SetOwned(ctx, []byte("b"), []byte("x"), time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ = b.Get(ctx, []byte("b")); string(got) != "x" {
+		t.Fatalf("rewrite: %q", got)
+	}
+	var bytes int
+	for i := range b.shards {
+		bytes += b.shards[i].bytes
+	}
+	if want := len(owned) + 1; bytes != want {
+		t.Fatalf("bytes held %d, want %d", bytes, want)
+	}
+	// The byte cap evicts owned values like copied ones: a shard's share is
+	// 1000 bytes, so 400-byte values of one shard cannot all stay.
+	for i := 0; i < 2000; i++ {
+		_ = b.SetOwned(ctx, []byte{byte(i), byte(i >> 8), 'k'}, make([]byte, 400), time.Minute)
+	}
+	bytes = 0
+	for i := range b.shards {
+		if b.shards[i].bytes > 1000 {
+			t.Fatalf("shard %d holds %d bytes past its share", i, b.shards[i].bytes)
+		}
+		bytes += b.shards[i].bytes
+	}
+	if bytes == 0 {
+		t.Fatal("nothing held")
+	}
+}

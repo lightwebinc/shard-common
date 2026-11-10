@@ -191,6 +191,7 @@ type Consumer struct {
 	cap  uint64
 	gen  uint64
 	tail uint64
+	pend uint64 // length of the record Peek returned, 0 when none
 	lost uint64
 	idle int
 }
@@ -249,6 +250,28 @@ func (c *Consumer) Stale() bool {
 // consumer to its head; what was unread counts as lost.
 func (c *Consumer) Next(buf []byte) int {
 	for {
+		v := c.Peek()
+		if v == nil {
+			return 0
+		}
+		if len(v) > len(buf) {
+			c.lost++
+			c.Advance()
+			continue
+		}
+		n := copy(buf, v)
+		c.Advance()
+		return n
+	}
+}
+
+// Peek returns the next datagram as a view into the ring, or nil when the
+// ring is empty. The view is valid until Advance, which releases it to the
+// producer: a caller that keeps the bytes copies them first, once, into
+// memory of its own (Next copies into a buffer the caller then copies
+// again). Peek without Advance returns the same datagram.
+func (c *Consumer) Peek() []byte {
+	for {
 		head := c.h.head()
 		if gen := c.h.generation(); gen != c.gen {
 			// The producer restarted: what was unread is gone with its
@@ -258,11 +281,12 @@ func (c *Consumer) Next(buf []byte) int {
 				c.lost++
 			}
 			c.tail = head
+			c.pend = 0
 			atomic.StoreUint64(c.h.u64(24), c.tail)
 			continue
 		}
 		if c.tail == head {
-			return 0
+			return nil
 		}
 		off := c.tail % c.cap
 		if off+recHeader > c.cap {
@@ -275,19 +299,28 @@ func (c *Consumer) Next(buf []byte) int {
 			continue
 		}
 		rec := uint64(recHeader + pad8(int(n)))
-		if int(n) > len(buf) || c.tail+rec > head {
-			// Too long for the caller, or a torn header (never with one
-			// producer): skip the record.
+		if n > MaxDatagram || c.tail+rec > head || off+rec > c.cap {
+			// Not a record this producer wrote (never with one producer):
+			// resume at its head.
 			c.lost++
-			c.tail += rec
+			c.tail = head
 			atomic.StoreUint64(c.h.u64(24), c.tail)
 			continue
 		}
-		copy(buf, c.data[off+recHeader:off+recHeader+uint64(n)])
-		c.tail += rec
-		atomic.StoreUint64(c.h.u64(24), c.tail)
-		return int(n)
+		c.pend = rec
+		return c.data[off+recHeader : off+recHeader+uint64(n) : off+recHeader+uint64(n)]
 	}
+}
+
+// Advance releases the datagram Peek returned. Without a pending Peek it
+// does nothing.
+func (c *Consumer) Advance() {
+	if c.pend == 0 {
+		return
+	}
+	c.tail += c.pend
+	c.pend = 0
+	atomic.StoreUint64(c.h.u64(24), c.tail)
 }
 
 // Wait pauses when the ring was empty: a few empty polls spin, then it sleeps

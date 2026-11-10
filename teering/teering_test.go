@@ -139,3 +139,70 @@ func TestProducerRestart(t *testing.T) {
 		t.Fatalf("new generation gave %d %q", n, buf[:n])
 	}
 }
+
+// TestPeekAdvance reads through views: Peek is stable until Advance, the
+// producer cannot reuse a peeked record, and a view's bytes are the
+// datagram's across the region's end.
+func TestPeekAdvance(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "ring")
+	p, err := Create(path, MinCapacity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = p.Close() }()
+	c, err := Attach(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c.Close() }()
+	if c.Peek() != nil {
+		t.Fatal("Peek on an empty ring")
+	}
+	c.Advance() // no pending Peek: nothing happens
+	r := rand.New(rand.NewSource(2))
+	for round := 0; round < 400; round++ {
+		var want [][]byte
+		for i := 0; i < 20; i++ {
+			b := make([]byte, 1+r.Intn(9000))
+			r.Read(b)
+			if err := p.Write(b); err != nil {
+				t.Fatal(err)
+			}
+			want = append(want, b)
+		}
+		for i, w := range want {
+			v := c.Peek()
+			if !bytes.Equal(v, w) {
+				t.Fatalf("round %d datagram %d: view of %d bytes, want %d", round, i, len(v), len(w))
+			}
+			if v2 := c.Peek(); len(v2) != len(v) || &v2[0] != &v[0] {
+				t.Fatalf("round %d datagram %d: second Peek moved", round, i)
+			}
+			if cap(v) != len(v) {
+				t.Fatalf("view capacity %d past its length %d", cap(v), len(v))
+			}
+			c.Advance()
+		}
+		if c.Peek() != nil {
+			t.Fatalf("round %d: extra datagram", round)
+		}
+	}
+	// A peeked record is not released: a full ring refuses the producer
+	// until Advance.
+	big := make([]byte, 60000)
+	for p.Write(big) == nil {
+	}
+	if c.Peek() == nil {
+		t.Fatal("full ring peeks nothing")
+	}
+	if err := p.Write(big); !errors.Is(err, ErrNoRoom) {
+		t.Fatalf("write into a full ring with a peeked record: %v", err)
+	}
+	c.Advance()
+	if err := p.Write(big); err != nil {
+		t.Fatalf("write after Advance: %v", err)
+	}
+	if c.Lost() != 0 {
+		t.Fatalf("lost %d", c.Lost())
+	}
+}
