@@ -95,13 +95,19 @@ type Producer struct {
 // world readable and writable so a consumer under another user (systemd
 // DynamicUser) can attach, and maps it. An existing file of the same size is
 // reused in place (its header reset, a new generation), so a consumer that
-// still maps it keeps a valid mapping; a file of another size is resized,
-// which a consumer mapping it cannot survive.
+// still maps it keeps a valid mapping; a file of another size is removed and
+// made anew (a mapping of a resized file faults past its end), which
+// Consumer.Stale reports.
 func Create(path string, capacity int) (*Producer, error) {
 	if capacity < MinCapacity {
 		return nil, fmt.Errorf("teering: capacity %d below %d", capacity, MinCapacity)
 	}
 	capacity = pad8(capacity)
+	if st, err := os.Lstat(path); err == nil && st.Size() != int64(headerSize+capacity) {
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return nil, err
+		}
+	}
 	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o666)
 	if err != nil {
 		return nil, err
@@ -276,7 +282,11 @@ func (c *Consumer) Peek() []byte {
 		if gen := c.h.generation(); gen != c.gen {
 			// The producer restarted: what was unread is gone with its
 			// counters (one loss counted, the exact number is unknown).
+			// The head read above may predate the reset; the producer
+			// stores the generation last, so a head read now is the new
+			// generation's.
 			c.gen = gen
+			head = c.h.head()
 			if c.tail != head {
 				c.lost++
 			}

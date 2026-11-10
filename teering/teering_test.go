@@ -206,3 +206,93 @@ func TestPeekAdvance(t *testing.T) {
 		t.Fatalf("lost %d", c.Lost())
 	}
 }
+
+// TestRestartWithStaleTail is the restart a consumer loses the race with: it
+// releases a datagram of the old generation after the producer reset the
+// counters, leaving a tail past the new head. The producer has no room until
+// the consumer's next read resets to the new generation; then both resume.
+func TestRestartWithStaleTail(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "ring")
+	p, err := Create(path, MinCapacity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := Attach(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c.Close() }()
+	for range 4 {
+		if err := p.Write(make([]byte, 1000)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if c.Peek() == nil {
+		t.Fatal("no datagram")
+	}
+	_ = p.Close()
+	p2, err := Create(path, MinCapacity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = p2.Close() }()
+	c.Advance() // the old generation's release, after the reset
+	if err := p2.Write([]byte("early")); err != ErrNoRoom {
+		t.Fatalf("write before the consumer's reset: %v, want ErrNoRoom", err)
+	}
+	if v := c.Peek(); v != nil {
+		t.Fatalf("read %d bytes of the old generation", len(v))
+	}
+	want := []byte("after the restart")
+	if err := p2.Write(want); err != nil {
+		t.Fatalf("write after the consumer's reset: %v", err)
+	}
+	buf := make([]byte, 64)
+	if n := c.Next(buf); string(buf[:n]) != string(want) {
+		t.Fatalf("got %q", buf[:n])
+	}
+	if c.Next(buf) != 0 {
+		t.Fatal("extra datagram")
+	}
+}
+
+// TestCreateOtherSizeMakesANewFile: a ring of another capacity is a new
+// file, so a consumer of the old one keeps a valid mapping and sees Stale.
+func TestCreateOtherSizeMakesANewFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "ring")
+	p, err := Create(path, MinCapacity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := Attach(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c.Close() }()
+	_ = p.Close()
+	if c.Stale() {
+		t.Fatal("stale before the resize")
+	}
+	p2, err := Create(path, 2*MinCapacity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = p2.Close() }()
+	if !c.Stale() {
+		t.Fatal("not stale after a create of another size")
+	}
+	if c.Peek() != nil {
+		t.Fatal("datagram on the old file")
+	}
+	c2, err := Attach(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c2.Close() }()
+	if err := p2.Write([]byte("x")); err != nil {
+		t.Fatal(err)
+	}
+	if v := c2.Peek(); string(v) != "x" {
+		t.Fatalf("got %q", v)
+	}
+}
