@@ -198,6 +198,7 @@ type Consumer struct {
 	gen  uint64
 	tail uint64
 	pend uint64 // length of the record Peek returned, 0 when none
+	seen uint64 // the head at the last look, under the current generation
 	lost uint64
 	idle int
 }
@@ -235,6 +236,7 @@ func Attach(path string) (*Consumer, error) {
 		c.ino = sys.Ino
 	}
 	c.tail = c.h.tail()
+	c.seen = c.h.head()
 	return c, nil
 }
 
@@ -281,20 +283,22 @@ func (c *Consumer) Peek() []byte {
 		head := c.h.head()
 		if gen := c.h.generation(); gen != c.gen {
 			// The producer restarted: what was unread is gone with its
-			// counters (one loss counted, the exact number is unknown).
-			// The head read above may predate the reset; the producer
-			// stores the generation last, so a head read now is the new
-			// generation's.
+			// counters (one loss counted, the exact number is unknown:
+			// what the old producer published after the consumer's last
+			// look is not seen at all). The head read above may predate
+			// the reset; the producer stores the generation last, so a
+			// head read now is the new generation's.
 			c.gen = gen
-			head = c.h.head()
-			if c.tail != head {
+			if c.tail != c.seen {
 				c.lost++
 			}
-			c.tail = head
+			head = c.h.head()
+			c.tail, c.seen = head, head
 			c.pend = 0
 			atomic.StoreUint64(c.h.u64(24), c.tail)
 			continue
 		}
+		c.seen = head
 		if c.tail == head {
 			return nil
 		}

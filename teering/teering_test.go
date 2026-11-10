@@ -296,3 +296,44 @@ func TestCreateOtherSizeMakesANewFile(t *testing.T) {
 		t.Fatalf("got %q", v)
 	}
 }
+
+// TestRestartCaughtUpCountsNoLoss: a consumer that had read everything
+// loses nothing at a producer restart.
+func TestRestartCaughtUpCountsNoLoss(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "ring")
+	p, err := Create(path, MinCapacity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := Attach(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c.Close() }()
+	buf := make([]byte, 2048)
+	for range 3 {
+		if err := p.Write(make([]byte, 1000)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for c.Next(buf) != 0 {
+	}
+	_ = p.Close()
+	p2, err := Create(path, MinCapacity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = p2.Close() }()
+	if c.Next(buf) != 0 {
+		t.Fatal("datagram after the restart")
+	}
+	if c.Lost() != 0 {
+		t.Fatalf("lost %d, want 0", c.Lost())
+	}
+	if err := p2.Write([]byte("next")); err != nil {
+		t.Fatal(err)
+	}
+	if n := c.Next(buf); string(buf[:n]) != "next" {
+		t.Fatalf("got %q", buf[:n])
+	}
+}
