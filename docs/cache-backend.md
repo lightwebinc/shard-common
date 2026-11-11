@@ -39,6 +39,11 @@ type Backend interface {
 - **Fail-open contract.** Dedup callers treat a `SetNX` error as *proceed*; the
   frame store treats `Get`/`Set` errors as a miss. A backend outage must never
   stop frames from forwarding.
+- **Optional `OwnedSetter`.** `SetOwned` is `Set` for a value the caller hands
+  over: the backend may keep the slice itself, and the caller must not touch
+  it afterward. The in-memory backend implements it (no copy); the networked
+  backends do not, and callers fall back to `Set`. The retry endpoint's ring
+  ingest uses it so a frame is copied once on its way into the cache.
 
 Construction is via `cache.Open(ctx, cache.Config)` (fail-closed: dials and
 verifies redis/aerospike, returns an error rather than a degraded backend).

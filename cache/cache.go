@@ -68,6 +68,17 @@ type Backend interface {
 	Close() error
 }
 
+// OwnedSetter is an optional extension of [Backend] for callers that hand a
+// value over instead of lending it: SetOwned is Set, except that the backend
+// may keep val itself rather than a copy, so the caller must not read or
+// write val after the call. A caller that has just copied a value into
+// memory of its own (a frame out of a receive ring) saves the backend's
+// second copy. Backends that copy anyway (the networked ones) do not
+// implement it; callers type-assert and fall back to Set.
+type OwnedSetter interface {
+	SetOwned(ctx context.Context, key, val []byte, ttl time.Duration) error
+}
+
 // Backend kind identifiers accepted by [Config.Backend] and [Open].
 const (
 	// BackendMemory is a per-process in-memory store: zero infrastructure,
