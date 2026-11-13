@@ -43,6 +43,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"hash/maphash"
 	"math"
 	"sync"
@@ -64,6 +65,13 @@ const (
 	// leaseKeyRoom is the room a lease keeps after its value for the key it
 	// is committed under. A longer key is stored with a copy instead.
 	leaseKeyRoom = 64
+
+	// maxLeases bounds Options.MaxLeases.
+	maxLeases = 1 << 24
+
+	// maxLen bounds a key and a value, whose lengths a record keeps in 32
+	// bits.
+	maxLen = math.MaxUint32
 
 	// expireBatch bounds the items the expirer pops per shard lock hold.
 	expireBatch = 1024
@@ -192,6 +200,9 @@ func New(opts Options) (*Backend, error) {
 	if n <= 0 {
 		n = DefaultMaxLeases
 	}
+	if n > maxLeases {
+		return nil, fmt.Errorf("arena: MaxLeases %d over the limit %d", n, maxLeases)
+	}
 	slots := 1
 	for slots < n {
 		slots <<= 1
@@ -232,6 +243,8 @@ func (b *Backend) take(n uint64) (uint64, error) {
 	if n > b.size {
 		return 0, ErrTooLarge
 	}
+	// An empty record still takes a byte: a position names one record.
+	n = max(n, 1)
 	c := b.cursor.Load()
 	if off := c % b.size; off+n > b.size {
 		c += b.size - off // a record never straddles the end of the block
@@ -252,6 +265,9 @@ func (b *Backend) at(pos uint64, n uint32) []byte {
 
 // write copies val then key into the block and returns the record's place.
 func (b *Backend) write(key, val []byte) (loc, error) {
+	if uint64(len(val)) > maxLen || uint64(len(key)) > maxLen {
+		return loc{}, ErrTooLarge
+	}
 	n := uint64(len(val)) + uint64(len(key))
 	b.mu.Lock()
 	pos, err := b.take(n)
@@ -358,6 +374,9 @@ func (b *Backend) Del(_ context.Context, key []byte) error {
 // larger than the block, too many leases are out, or the space it needs is
 // leased); the caller then keeps val in memory of its own and uses Set.
 func (b *Backend) Lease(val []byte) Lease {
+	if uint64(len(val)) > maxLen {
+		return Lease{}
+	}
 	n := uint64(len(val)) + leaseKeyRoom
 	b.mu.Lock()
 	defer b.mu.Unlock()

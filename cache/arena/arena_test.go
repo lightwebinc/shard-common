@@ -53,6 +53,39 @@ func TestNewRejectsNoBytes(t *testing.T) {
 	}
 }
 
+func TestNewRejectsTooManyLeases(t *testing.T) {
+	if _, err := New(Options{Bytes: 1024, MaxLeases: maxLeases + 1}); err == nil {
+		t.Fatal("New with MaxLeases over the limit succeeded")
+	}
+}
+
+// An empty key and value is a record like any other: rewriting it does not
+// queue items the index cannot tell apart.
+func TestEmptyRecord(t *testing.T) {
+	b := newArena(t, Options{Bytes: 1 << 20, ExpireInterval: time.Hour})
+	for range 10 * compactSlack {
+		if err := b.Set(ctx, nil, nil, 0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := b.Get(ctx, nil)
+	if err != nil || got == nil || len(got) != 0 {
+		t.Fatalf("Get of the empty record = (%v, %v)", got, err)
+	}
+	s := b.shardOf(b.hash(nil))
+	s.mu.Lock()
+	items := s.items
+	s.mu.Unlock()
+	if items > 2+compactSlack+1 {
+		t.Fatalf("%d queued items for one entry", items)
+	}
+	l := b.Lease(nil)
+	if l.Buf == nil {
+		t.Fatal("lease of an empty value refused")
+	}
+	b.Release(l)
+}
+
 // A lapped entry is a miss, and a hit is always the bytes stored under that
 // key: write several blocks' worth and look every key up after every write.
 func TestLappedEntryIsAMiss(t *testing.T) {
