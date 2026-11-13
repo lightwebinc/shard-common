@@ -9,10 +9,17 @@ import (
 //
 // Write copies a datagram into the ring. A producer that builds its
 // datagrams anyway (a proxy fragmenting a record) can build them in the ring
-// instead: Reserve lays out the records for a run of datagrams and returns
-// their memory, the producer fills it (on any goroutine, without the lock:
-// the space is its own until published), sends from it, and Commit publishes
-// the run. The tee is then no copy at all.
+// instead: Reserve returns the memory for a run of datagrams laid back to
+// back, the producer fills it (on any goroutine, without a lock: the space
+// is its own until published), sends from it, and Commit publishes the run.
+// The tee is then no copy at all, and because the run is contiguous the
+// producer can send it as it would send a buffer of its own (GSO messages of
+// several datagrams from one slice).
+//
+// A run is one record in the ring: its length carries batchFlag and its
+// second word the size of every datagram but the last, which may be shorter.
+// The consumer hands the datagrams out one at a time, as it does single
+// records, and releases the run's space when it has read the last.
 //
 // Reservations are published in the order they were reserved: the head moves
 // past one only when every earlier one is committed or given up (Void), so
@@ -25,70 +32,71 @@ import (
 // producer (or the kernel, for a zero-copy send) may still read it. Unpin
 // when nothing references the memory any more. Void unpins.
 //
+// A consumer must be built with reservations to read a ring that carries
+// them: an older one reads a run as a torn record, counts a loss and resumes
+// at the head, so the endpoint is rolled before the proxy uses them.
+//
 // Producer methods are safe for concurrent use.
 
 // Reservation is a run of datagrams reserved in the ring.
 type Reservation struct {
-	start, end uint64   // head counts: the run's records, with any skip ahead of them
-	bufs       [][]byte // each datagram's memory in the ring
-	hdrs       []uint64 // each record header's offset in the data region
+	start, end uint64 // head counts: the run's record, with any skip ahead of it
+	buf        []byte // the run's datagrams, back to back
+	hdr        uint64 // the record header's offset in the data region
 	done       bool
 }
 
-// Datagrams is the memory of each datagram, in order, each of the size asked
-// for. It is the producer's until Commit; after Commit it must not be
+// Bytes is the run's memory: its datagrams back to back, each seg bytes but
+// the last. It is the producer's until Commit; after Commit it must not be
 // written, and may be read until Unpin.
-func (r *Reservation) Datagrams() [][]byte { return r.bufs }
+func (r *Reservation) Bytes() []byte { return r.buf }
 
-// Reserve reserves records for datagrams of the given sizes and returns the
-// reservation, or ErrNoRoom when the ring cannot hold them now (the consumer
-// has not released enough, or released space is still pinned): the caller
-// then sends another way and may Write the datagrams, which counts a drop
-// when that fails too. ErrTooLarge past MaxDatagram.
-func (p *Producer) Reserve(sizes []int) (*Reservation, error) {
-	for _, n := range sizes {
-		if n > MaxDatagram {
-			return nil, ErrTooLarge
-		}
+// Reserve reserves a run of count datagrams, each seg bytes except the last,
+// which is last bytes (0 < last <= seg), and returns the reservation, or
+// ErrNoRoom when the ring cannot hold it now (the consumer has not released
+// enough, or released space is still pinned): the caller then sends another
+// way and may Write the datagrams, which counts a drop when that fails too.
+// ErrTooLarge for a datagram over MaxDatagram or a run over MaxBatch.
+func (p *Producer) Reserve(seg, count, last int) (*Reservation, error) {
+	if seg <= 0 || count <= 0 || last <= 0 || last > seg || seg > MaxDatagram || (count-1)*seg+last > MaxBatch {
+		return nil, ErrTooLarge
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return p.reserveLocked(sizes)
+	return p.reserveLocked(seg, count, last)
 }
 
-func (p *Producer) reserveLocked(sizes []int) (*Reservation, error) {
-	floor := p.floorLocked()
-	// First pass: where everything would go, writing nothing.
-	pos := p.resv
-	for _, n := range sizes {
-		need := uint64(recHeader + pad8(n))
-		if off := pos % p.cap; off+need > p.cap {
-			pos += p.cap - off
-		}
-		pos += need
+func (p *Producer) reserveLocked(seg, count, last int) (*Reservation, error) {
+	total := uint64((count-1)*seg + last)
+	need := recHeader + (total+7)&^7
+	if need > p.cap {
+		return nil, ErrTooLarge
 	}
-	if pos-floor > p.cap {
+	pos := p.resv
+	off := pos % p.cap
+	skip := uint64(0)
+	if off+need > p.cap {
+		skip = p.cap - off
+	}
+	if pos+skip+need-p.floorLocked() > p.cap {
 		return nil, ErrNoRoom
 	}
-	r := &Reservation{start: p.resv, end: pos, bufs: make([][]byte, 0, len(sizes)), hdrs: make([]uint64, 0, len(sizes))}
-	pos = p.resv
-	for _, n := range sizes {
-		need := uint64(recHeader + pad8(n))
-		off := pos % p.cap
-		if off+need > p.cap {
-			if p.cap-off >= recHeader {
-				binary.LittleEndian.PutUint32(p.data[off:], skipMarker)
-			}
-			pos += p.cap - off
-			off = 0
+	if skip > 0 {
+		if skip >= recHeader {
+			binary.LittleEndian.PutUint32(p.data[off:], skipMarker)
 		}
-		binary.LittleEndian.PutUint32(p.data[off:], uint32(n))
-		binary.LittleEndian.PutUint32(p.data[off+4:], 0)
-		r.hdrs = append(r.hdrs, off)
-		r.bufs = append(r.bufs, p.data[off+recHeader:off+recHeader+uint64(n):off+recHeader+uint64(n)])
-		pos += need
+		pos += skip
+		off = 0
 	}
-	p.resv = pos
+	word := uint32(total)
+	if count > 1 {
+		word |= batchFlag
+	}
+	binary.LittleEndian.PutUint32(p.data[off:], word)
+	binary.LittleEndian.PutUint32(p.data[off+4:], uint32(seg))
+	r := &Reservation{start: p.resv, end: pos + need, hdr: off,
+		buf: p.data[off+recHeader : off+recHeader+total : off+recHeader+total]}
+	p.resv = r.end
 	p.out = append(p.out, r)
 	p.pins = append(p.pins, r)
 	return r, nil
@@ -103,15 +111,13 @@ func (p *Producer) Commit(r *Reservation) {
 	p.mu.Unlock()
 }
 
-// Void gives r up: its records are marked so the consumer steps over them,
-// and its space is released to the ring like any other. Use it when the
-// datagrams will not be sent after all.
+// Void gives r up: its record is marked so the consumer steps over it, and
+// its space is released to the ring like any other. Use it when the
+// datagrams will not be sent after all. Void after Commit only unpins.
 func (p *Producer) Void(r *Reservation) {
 	p.mu.Lock()
 	if !r.done {
-		for i, off := range r.hdrs {
-			binary.LittleEndian.PutUint32(p.data[off:], uint32(len(r.bufs[i]))|voidFlag)
-		}
+		binary.LittleEndian.PutUint32(p.data[r.hdr:], uint32(len(r.buf))|voidFlag)
 		r.done = true
 	}
 	p.unpinLocked(r)

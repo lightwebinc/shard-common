@@ -58,7 +58,14 @@ const (
 	// voidFlag on a record's length marks space a producer reserved and gave
 	// up (reserve.go): the consumer steps over it. A consumer built before
 	// reservations reads it as a torn record and resumes at the head.
-	voidFlag  = 0x80000000
+	voidFlag = 0x80000000
+	// batchFlag on a record's length marks a run of datagrams laid back to
+	// back (reserve.go): the length is the run's bytes and the record's
+	// second word the size of every datagram but the last. A consumer built
+	// before reservations reads it as a torn record too.
+	batchFlag = 0x40000000
+	// MaxBatch is the most bytes one reserved run holds.
+	MaxBatch  = 32 << 20
 	recHeader = 8
 	// MinCapacity is the smallest data region accepted: room for a few
 	// jumbo datagrams.
@@ -162,12 +169,12 @@ func (p *Producer) Write(b []byte) error {
 	if len(p.out) > 0 {
 		// Behind reservations not yet published: the datagram takes its
 		// place after them and is published with them, in order.
-		r, err := p.reserveLocked([]int{len(b)})
+		r, err := p.reserveLocked(len(b), 1, len(b))
 		if err != nil {
 			p.drop()
 			return err
 		}
-		copy(r.bufs[0], b)
+		copy(r.buf, b)
 		p.unpinLocked(r)
 		r.done = true
 		p.publishLocked()
@@ -230,9 +237,14 @@ type Consumer struct {
 	gen  uint64
 	tail uint64
 	pend uint64 // length of the record Peek returned, 0 when none
-	seen uint64 // the head at the last look, under the current generation
-	lost uint64
-	idle int
+	// A run being read (reserve.go): brec is its record's length in the ring
+	// (released when the run is read to its end), boff where its next
+	// datagram starts in the data region, bleft the bytes still unread and
+	// bseg its datagrams' size; bcur is the datagram Peek returned.
+	brec, boff, bleft, bseg, bcur uint64
+	seen                          uint64 // the head at the last look, under the current generation
+	lost                          uint64
+	idle                          int
 }
 
 // Attach maps the ring file at path. The file must have been created by a
@@ -327,10 +339,16 @@ func (c *Consumer) Peek() []byte {
 			head = c.h.head()
 			c.tail, c.seen = head, head
 			c.pend = 0
+			c.brec, c.bleft, c.bcur = 0, 0, 0
 			atomic.StoreUint64(c.h.u64(24), c.tail)
 			continue
 		}
 		c.seen = head
+		if c.bleft > 0 {
+			// Inside a run: its next datagram.
+			c.bcur = min(c.bseg, c.bleft)
+			return c.data[c.boff : c.boff+c.bcur : c.boff+c.bcur]
+		}
 		if c.tail == head {
 			return nil
 		}
@@ -344,13 +362,25 @@ func (c *Consumer) Peek() []byte {
 			c.tail += c.cap - off
 			continue
 		}
-		if n&voidFlag != 0 {
-			// A reservation the producer gave up: its space, no datagram.
-			if rec := uint64(recHeader + pad8(int(n&^voidFlag))); n&^voidFlag <= MaxDatagram && c.tail+rec <= head && off+rec <= c.cap {
+		if n&(voidFlag|batchFlag) != 0 {
+			total := uint64(n &^ (voidFlag | batchFlag))
+			rec := recHeader + (total+7)&^7
+			seg := uint64(binary.LittleEndian.Uint32(c.data[off+4:]))
+			if total == 0 || total > MaxBatch || c.tail+rec > head || off+rec > c.cap || (n&batchFlag != 0 && (seg == 0 || seg > MaxDatagram)) {
+				// Not a record this producer wrote: resume at its head.
+				c.lost++
+				c.tail = head
+				atomic.StoreUint64(c.h.u64(24), c.tail)
+				continue
+			}
+			if n&voidFlag != 0 {
+				// A reservation the producer gave up: its space, no datagram.
 				c.tail += rec
 				atomic.StoreUint64(c.h.u64(24), c.tail)
 				continue
 			}
+			c.brec, c.boff, c.bleft, c.bseg = rec, off+recHeader, total, seg
+			continue
 		}
 		rec := uint64(recHeader + pad8(int(n)))
 		if n > MaxDatagram || c.tail+rec > head || off+rec > c.cap {
@@ -369,6 +399,17 @@ func (c *Consumer) Peek() []byte {
 // Advance releases the datagram Peek returned. Without a pending Peek it
 // does nothing.
 func (c *Consumer) Advance() {
+	if c.bcur > 0 {
+		c.boff += c.bcur
+		c.bleft -= c.bcur
+		c.bcur = 0
+		if c.bleft == 0 {
+			c.tail += c.brec
+			c.brec = 0
+			atomic.StoreUint64(c.h.u64(24), c.tail)
+		}
+		return
+	}
 	if c.pend == 0 {
 		return
 	}

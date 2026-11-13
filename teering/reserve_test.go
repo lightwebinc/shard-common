@@ -52,20 +52,19 @@ func TestReservedEqualsWritten(t *testing.T) {
 			}
 			want = append(want, b)
 		} else {
-			sizes := make([]int, 1+r.Intn(12))
-			for i := range sizes {
-				sizes[i] = 1 + r.Intn(9000)
-			}
-			res, err := p.Reserve(sizes)
+			seg, count := 1+r.Intn(9000), 1+r.Intn(12)
+			last := 1 + r.Intn(seg)
+			res, err := p.Reserve(seg, count, last)
 			if err != nil {
 				t.Fatalf("round %d: %v", round, err)
 			}
-			for i, b := range res.Datagrams() {
-				if len(b) != sizes[i] {
-					t.Fatalf("datagram %d is %d bytes, asked %d", i, len(b), sizes[i])
-				}
-				r.Read(b)
-				want = append(want, bytes.Clone(b))
+			b := res.Bytes()
+			if len(b) != (count-1)*seg+last {
+				t.Fatalf("run of %d bytes, asked %d", len(b), (count-1)*seg+last)
+			}
+			r.Read(b)
+			for i := 0; i < count; i++ {
+				want = append(want, bytes.Clone(b[i*seg:min((i+1)*seg, len(b))]))
 			}
 			p.Commit(res)
 			p.Unpin(res)
@@ -89,15 +88,13 @@ func TestReservedEqualsWritten(t *testing.T) {
 // order they are committed in, and nothing of one before it is committed.
 func TestReservationsPublishInOrder(t *testing.T) {
 	p, c := ringPair(t, MinCapacity)
-	a, _ := p.Reserve([]int{100, 200})
-	b, _ := p.Reserve([]int{300})
-	for _, d := range a.Datagrams() {
-		for i := range d {
-			d[i] = 'a'
-		}
+	a, _ := p.Reserve(200, 2, 100)
+	b, _ := p.Reserve(300, 1, 300)
+	for i := range a.Bytes() {
+		a.Bytes()[i] = 'a'
 	}
-	for i := range b.Datagrams()[0] {
-		b.Datagrams()[0][i] = 'b'
+	for i := range b.Bytes() {
+		b.Bytes()[i] = 'b'
 	}
 	if err := p.Write([]byte("w")); err != nil { // behind both
 		t.Fatal(err)
@@ -108,7 +105,7 @@ func TestReservationsPublishInOrder(t *testing.T) {
 	}
 	p.Commit(a)
 	got := drain(t, c)
-	if len(got) != 4 || len(got[0]) != 100 || len(got[1]) != 200 || len(got[2]) != 300 || string(got[3]) != "w" ||
+	if len(got) != 4 || len(got[0]) != 200 || len(got[1]) != 100 || len(got[2]) != 300 || string(got[3]) != "w" ||
 		got[0][0] != 'a' || got[2][0] != 'b' {
 		t.Fatalf("order or content wrong: %d datagrams", len(got))
 	}
@@ -120,11 +117,11 @@ func TestReservationsPublishInOrder(t *testing.T) {
 // and counts nothing lost.
 func TestVoidIsSkipped(t *testing.T) {
 	p, c := ringPair(t, MinCapacity)
-	a, _ := p.Reserve([]int{500})
-	b, _ := p.Reserve([]int{8952, 8952, 100})
-	d, _ := p.Reserve([]int{700})
-	copy(a.Datagrams()[0], bytes.Repeat([]byte{1}, 500))
-	copy(d.Datagrams()[0], bytes.Repeat([]byte{3}, 700))
+	a, _ := p.Reserve(500, 1, 500)
+	b, _ := p.Reserve(8952, 3, 100)
+	d, _ := p.Reserve(700, 1, 700)
+	copy(a.Bytes(), bytes.Repeat([]byte{1}, 500))
+	copy(d.Bytes(), bytes.Repeat([]byte{3}, 700))
 	p.Commit(a)
 	p.Void(b)
 	p.Commit(d)
@@ -141,28 +138,26 @@ func TestVoidIsSkipped(t *testing.T) {
 // released it; once unpinned it is.
 func TestPinnedSpaceIsNotReused(t *testing.T) {
 	p, c := ringPair(t, MinCapacity)
-	chunk := []int{60000, 60000, 60000, 60000}
-	first, err := p.Reserve(chunk)
+	reserve := func() (*Reservation, error) { return p.Reserve(60000, 4, 60000) }
+	first, err := reserve()
 	if err != nil {
 		t.Fatal(err)
 	}
 	marker := bytes.Repeat([]byte{0xEE}, 60000)
-	copy(first.Datagrams()[0], marker)
+	copy(first.Bytes(), marker)
 	p.Commit(first)
 	drain(t, c) // the consumer has released it; it stays pinned
 	var held []*Reservation
 	for {
-		r, err := p.Reserve(chunk)
+		r, err := reserve()
 		if errors.Is(err, ErrNoRoom) {
 			break
 		}
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, d := range r.Datagrams() {
-			for i := range d {
-				d[i] = 0x11
-			}
+		for i := range r.Bytes() {
+			r.Bytes()[i] = 0x11
 		}
 		p.Commit(r)
 		drain(t, c)
@@ -171,14 +166,14 @@ func TestPinnedSpaceIsNotReused(t *testing.T) {
 			t.Fatal("the ring never filled around a pinned reservation")
 		}
 	}
-	if !bytes.Equal(first.Datagrams()[0], marker) {
+	if !bytes.Equal(first.Bytes()[:60000], marker) {
 		t.Fatal("pinned memory was written over")
 	}
 	p.Unpin(first)
 	for _, r := range held {
 		p.Unpin(r)
 	}
-	if _, err := p.Reserve(chunk); err != nil {
+	if _, err := reserve(); err != nil {
 		t.Fatalf("no room after everything was unpinned and read: %v", err)
 	}
 }
@@ -226,11 +221,12 @@ func TestConcurrentReservations(t *testing.T) {
 		go func(w int) {
 			defer wg.Done()
 			for seq := 0; seq < each; {
-				r, err := p.Reserve([]int{3 + 1000*(w+1)})
+				n := 3 + 1000*(w+1)
+				r, err := p.Reserve(n, 1, n)
 				if err != nil {
 					continue // the reader will make room
 				}
-				b := r.Datagrams()[0]
+				b := r.Bytes()
 				b[0], b[1], b[2] = byte(w), byte(seq), byte(seq>>8)
 				for i := 3; i < len(b); i++ {
 					b[i] = byte(w)
