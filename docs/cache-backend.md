@@ -44,12 +44,19 @@ type Backend interface {
   it afterward. The in-memory backend implements it (no copy); the networked
   backends do not, and callers fall back to `Set`. The retry endpoint's ring
   ingest uses it so a frame is copied once on its way into the cache.
+- **Optional `Leaser`.** For a caller that receives a value before it knows
+  the key: `Lease` copies the value into the backend's own memory, `Commit`
+  stores it under a key without a second copy, `Release` ends the caller's
+  use of the leased bytes. `Lease` may answer an empty lease (the backend
+  cannot take the value now); the caller then falls back to `Set`. The arena
+  backend implements it.
 
 Construction is via `cache.Open(ctx, cache.Config)` (fail-closed: dials and
 verifies redis/aerospike, returns an error rather than a degraded backend).
 `Config.Backend` selects `memory | redis | aerospike | none`.
 `cache.RegisterFlags(fs, flagPrefix, envPrefix)` wires the standard flag set
 (`cache-backend`, `cache-memory-max-keys`, `cache-memory-max-bytes`,
+`cache-memory-arena-bytes`,
 `redis-addr`, `aerospike-hosts`, `aerospike-namespace`, `aerospike-set`,
 `cache-dial-timeout`, `cache-op-timeout`, each with an UPPERCASE env
 equivalent) onto a `flag.FlagSet` and returns the `Config`; services with
@@ -60,6 +67,7 @@ bespoke flag names fill the struct themselves.
 | Backend | Package | SetNX | TTL | Use case |
 |---------|---------|-------|-----|----------|
 | `memory` | `cache/memory` | per-process map (striped, 64 shards) | sub-second OK | dev/CI; per-instance retry frame store |
+| `memory` with `-cache-memory-arena-bytes` | `cache/arena` | per-process, one preallocated block | sub-second OK | a per-instance frame store that turns over fast |
 | `redis` | `cache/redis` | `SET NX EX` | sub-second OK | **default for scale-up**; any Redis-protocol server |
 | `aerospike` | `cache/aerospike` | `CREATE_ONLY` write | **whole seconds, floor 1s** | largest fleets; auto-sharded, hybrid RAM/SSD |
 | `none` | n/a | n/a | n/a | tier-1 LRU only (dedup); rejected by the frame store |
@@ -94,6 +102,33 @@ directly).
 Callers use a handful of fixed TTLs. Each distinct TTL opens a queue that
 expiry and eviction must visit, so deriving a distinct TTL per write would
 defeat the design.
+
+### Arena backend
+
+`cache/arena` is the in-memory backend for a cache that turns over fast, such
+as a retry endpoint caching every fragment in flight. It is selected by a
+positive `-cache-memory-arena-bytes` (`Config.MemoryArenaBytes`) with the
+`memory` backend. All values live in one block of that size, allocated at
+start; a write is a copy into the block and an index entry with no pointers in
+it, so nothing is allocated per write and the garbage collector has no entries
+to walk.
+
+| | `memory` | arena |
+|---|---|---|
+| Byte cap | `-cache-memory-max-bytes`; evicts the earliest deadline | the block's size (`-cache-memory-max-bytes` is not read); the oldest bytes written are overwritten, whatever their TTL |
+| TTLs and the key cap | as described above | the same |
+| `Get` | returns the stored slice | returns a copy |
+| Memory | grows and shrinks with the cache | resident as the block is first written, then constant |
+
+Each record keeps its key beside its value and a lookup compares the whole
+key, so a lookup returns the value stored under that key or a miss, never the
+bytes of whatever overwrote it.
+
+A lease pins its bytes: the block does not overwrite a leased value until it
+is released, and a write that would need its space is refused (`ErrBusy` from
+`Set`, an empty lease from `Lease`). Size the block well above what can be
+leased at once (a receive pipeline's depth times its largest datagram); at
+frame-cache sizes it is thousands of times larger.
 
 ### Redis backend covers more than Redis
 

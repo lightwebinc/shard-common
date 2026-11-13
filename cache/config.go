@@ -24,6 +24,13 @@ type Config struct {
 	// unbounded). Ignored by other backends.
 	MemoryMaxBytes int
 
+	// MemoryArenaBytes, when positive, makes the in-memory backend keep its
+	// values in one block of this many bytes allocated at start
+	// (cache/arena) instead of allocating each value: for a cache that turns
+	// over fast. The block's size is then the cap on the bytes cached, and
+	// MemoryMaxBytes is not read. Ignored by other backends.
+	MemoryArenaBytes int
+
 	// RedisAddr is the host:port of a Redis-protocol server. Required when
 	// Backend == BackendRedis.
 	RedisAddr string
@@ -64,6 +71,9 @@ func RegisterFlags(fs *flag.FlagSet, flagPrefix, envPrefix string) *Config {
 	fs.IntVar(&c.MemoryMaxBytes, flagPrefix+"cache-memory-max-bytes",
 		envInt(envPrefix+"CACHE_MEMORY_MAX_BYTES", 0),
 		"in-memory backend cap on the bytes of its values (0 = unbounded)")
+	fs.IntVar(&c.MemoryArenaBytes, flagPrefix+"cache-memory-arena-bytes",
+		envInt(envPrefix+"CACHE_MEMORY_ARENA_BYTES", 0),
+		"in-memory backend: keep values in one block of this many bytes allocated at start (0 = allocate each value)")
 	fs.StringVar(&c.RedisAddr, flagPrefix+"redis-addr",
 		envStr(envPrefix+"REDIS_ADDR", ""),
 		"Redis-protocol server host:port (Redis/Valkey/Dragonfly); required when cache-backend=redis")

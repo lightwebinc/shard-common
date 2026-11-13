@@ -8,6 +8,7 @@ import (
 	"github.com/alicebob/miniredis/v2"
 
 	"github.com/lightwebinc/shard-common/cache"
+	"github.com/lightwebinc/shard-common/cache/arena"
 	"github.com/lightwebinc/shard-common/cache/memory"
 	"github.com/lightwebinc/shard-common/cache/redis"
 )
@@ -64,6 +65,15 @@ func TestMemoryBackend(t *testing.T) {
 	conformance(t, b)
 }
 
+func TestArenaBackend(t *testing.T) {
+	b, err := arena.New(arena.Options{Bytes: 1 << 16})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = b.Close() }()
+	conformance(t, b)
+}
+
 func TestMemoryExpiry(t *testing.T) {
 	b := memory.New(0)
 	defer func() { _ = b.Close() }()
@@ -111,6 +121,19 @@ func TestOpen(t *testing.T) {
 		t.Fatalf("Open(memory) = (%v, %v), want (backend, nil)", b, err)
 	}
 	defer func() { _ = b.Close() }()
+
+	// memory with an arena → the arena backend, which leases.
+	ab, err := cache.Open(ctx, cache.Config{Backend: cache.BackendMemory, MemoryArenaBytes: 1 << 16})
+	if err != nil {
+		t.Fatalf("Open(memory, arena): %v", err)
+	}
+	defer func() { _ = ab.Close() }()
+	if _, ok := ab.(cache.Leaser); !ok {
+		t.Fatalf("Open(memory, arena) = %T, want a Leaser", ab)
+	}
+	if _, ok := b.(cache.Leaser); ok {
+		t.Fatalf("Open(memory) = %T, a Leaser", b)
+	}
 
 	// unknown → error.
 	if _, err := cache.Open(ctx, cache.Config{Backend: "bogus"}); err == nil {

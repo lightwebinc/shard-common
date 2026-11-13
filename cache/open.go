@@ -3,8 +3,10 @@ package cache
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/lightwebinc/shard-common/cache/aerospike"
+	"github.com/lightwebinc/shard-common/cache/arena"
 	"github.com/lightwebinc/shard-common/cache/memory"
 	"github.com/lightwebinc/shard-common/cache/redis"
 )
@@ -21,11 +23,33 @@ import (
 // The in-memory backend keeps a handed-over value without a copy.
 var _ OwnedSetter = (*memory.Backend)(nil)
 
+// Lease is a value held in a backend's own memory before it has a key.
+type Lease = arena.Lease
+
+// Leaser is an optional extension of [Backend] for callers that receive a
+// value before they know its key: Lease copies the value into the backend's
+// memory, Commit stores it under a key without a second copy, and Release
+// ends the caller's use of the leased bytes. Lease returns an empty Lease
+// (nil Buf) when the backend cannot take the value now; the caller then
+// falls back to Set. Every non-empty lease is released exactly once,
+// committed or not, and committed at most once. The arena backend
+// implements it; callers type-assert.
+type Leaser interface {
+	Lease(val []byte) Lease
+	Commit(ctx context.Context, key []byte, l Lease, ttl time.Duration) error
+	Release(l Lease)
+}
+
+var _ Leaser = (*arena.Backend)(nil)
+
 func Open(_ context.Context, cfg Config) (Backend, error) {
 	switch cfg.Backend {
 	case BackendNone, "":
 		return nil, nil
 	case BackendMemory:
+		if cfg.MemoryArenaBytes > 0 {
+			return arena.New(arena.Options{Bytes: cfg.MemoryArenaBytes, MaxKeys: cfg.MemoryMaxKeys})
+		}
 		return memory.NewWithOptions(memory.Options{MaxKeys: cfg.MemoryMaxKeys, MaxBytes: cfg.MemoryMaxBytes}), nil
 	case BackendRedis:
 		return redis.New(redis.Options{
