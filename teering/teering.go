@@ -12,7 +12,8 @@
 //
 //	Offset  Size  Field
 //	 0      4     Magic "TEER"
-//	 4      4     Version (1)
+//	 4      4     Version (2; a consumer also reads version 1, which has no
+//	              reserved or run records)
 //	 8      8     Capacity of the data region in bytes (a multiple of 8)
 //	16      8     Head: bytes the producer has published, monotonic
 //	24      8     Tail: bytes the consumer has released, monotonic
@@ -41,6 +42,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -51,10 +53,22 @@ import (
 
 const (
 	magic      = 0x52454554 // "TEER" little endian
-	version    = 1
+	version    = 2          // 1: single-datagram records only; 2 adds void and run records (reserve.go)
+	versionOne = 1
 	headerSize = 64
 	skipMarker = 0xFFFFFFFF
-	recHeader  = 8
+	// voidFlag on a record's length marks space a producer reserved and gave
+	// up (reserve.go): the consumer steps over it. A consumer built before
+	// reservations reads it as a torn record and resumes at the head.
+	voidFlag = 0x80000000
+	// batchFlag on a record's length marks a run of datagrams laid back to
+	// back (reserve.go): the length is the run's bytes and the record's
+	// second word the size of every datagram but the last. A consumer built
+	// before reservations reads it as a torn record too.
+	batchFlag = 0x40000000
+	// MaxBatch is the most bytes one reserved run holds.
+	MaxBatch  = 32 << 20
+	recHeader = 8
 	// MinCapacity is the smallest data region accepted: room for a few
 	// jumbo datagrams.
 	MinCapacity = 1 << 20
@@ -89,6 +103,15 @@ type Producer struct {
 	data []byte
 	cap  uint64
 	head uint64 // the producer's own copy of head
+
+	// Reservations (reserve.go). mu guards everything below and the
+	// producer's writes; resv is where the next reservation starts (head
+	// when none is outstanding), out the reservations not yet published, in
+	// order, pins those whose memory a caller still reads.
+	mu   sync.Mutex
+	resv uint64
+	out  []*Reservation
+	pins []*Reservation
 }
 
 // Create makes the ring file at path with a data region of capacity bytes,
@@ -143,8 +166,25 @@ func (p *Producer) Write(b []byte) error {
 	if len(b) > MaxDatagram {
 		return ErrTooLarge
 	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if len(p.out) > 0 {
+		// Behind reservations not yet published: the datagram takes its
+		// place after them and is published with them, in order.
+		r, err := p.reserveLocked(len(b))
+		if err != nil {
+			p.drop()
+			return err
+		}
+		copy(r.buf, b)
+		binary.LittleEndian.PutUint32(p.data[r.hdr:], uint32(len(b)))
+		p.unpinLocked(r)
+		r.done = true
+		p.publishLocked()
+		return nil
+	}
 	need := uint64(recHeader + pad8(len(b)))
-	tail := p.h.tail()
+	tail := p.floorLocked()
 	off := p.head % p.cap
 	// A record never crosses the end: skip the rest of the region first.
 	if off+need > p.cap {
@@ -157,6 +197,7 @@ func (p *Producer) Write(b []byte) error {
 			binary.LittleEndian.PutUint32(p.data[off:], skipMarker)
 		}
 		p.head += skip
+		p.resv = p.head
 		off = 0
 	}
 	if p.head+need-tail > p.cap {
@@ -167,6 +208,7 @@ func (p *Producer) Write(b []byte) error {
 	binary.LittleEndian.PutUint32(p.data[off+4:], 0)
 	copy(p.data[off+recHeader:], b)
 	p.head += need
+	p.resv = p.head
 	atomic.StoreUint64(p.h.u64(16), p.head)
 	return nil
 }
@@ -198,13 +240,19 @@ type Consumer struct {
 	gen  uint64
 	tail uint64
 	pend uint64 // length of the record Peek returned, 0 when none
-	seen uint64 // the head at the last look, under the current generation
-	lost uint64
-	idle int
+	// A run being read (reserve.go): brec is its record's length in the ring
+	// (released when the run is read to its end), boff where its next
+	// datagram starts in the data region, bleft the bytes still unread and
+	// bseg its datagrams' size; bcur is the datagram Peek returned.
+	brec, boff, bleft, bseg, bcur uint64
+	seen                          uint64 // the head at the last look, under the current generation
+	lost                          uint64
+	idle                          int
 }
 
 // Attach maps the ring file at path. The file must have been created by a
-// Producer (ErrBadHeader otherwise).
+// Producer (ErrBadHeader otherwise). A ring of an earlier version is read as
+// it was written; one of a later version is refused, not misread.
 func Attach(path string) (*Consumer, error) {
 	f, err := os.OpenFile(path, os.O_RDWR, 0)
 	if err != nil {
@@ -225,7 +273,7 @@ func Attach(path string) (*Consumer, error) {
 		return nil, err
 	}
 	h := header{m}
-	if binary.LittleEndian.Uint32(m[0:]) != magic || binary.LittleEndian.Uint32(m[4:]) != version ||
+	if binary.LittleEndian.Uint32(m[0:]) != magic || !readable(binary.LittleEndian.Uint32(m[4:])) ||
 		h.capacity() != uint64(st.Size()-headerSize) {
 		_ = unix.Munmap(m)
 		_ = f.Close()
@@ -295,10 +343,16 @@ func (c *Consumer) Peek() []byte {
 			head = c.h.head()
 			c.tail, c.seen = head, head
 			c.pend = 0
+			c.brec, c.bleft, c.bcur = 0, 0, 0
 			atomic.StoreUint64(c.h.u64(24), c.tail)
 			continue
 		}
 		c.seen = head
+		if c.bleft > 0 {
+			// Inside a run: its next datagram.
+			c.bcur = min(c.bseg, c.bleft)
+			return c.data[c.boff : c.boff+c.bcur : c.boff+c.bcur]
+		}
 		if c.tail == head {
 			return nil
 		}
@@ -310,6 +364,26 @@ func (c *Consumer) Peek() []byte {
 		n := binary.LittleEndian.Uint32(c.data[off:])
 		if n == skipMarker {
 			c.tail += c.cap - off
+			continue
+		}
+		if n&(voidFlag|batchFlag) != 0 {
+			total := uint64(n &^ (voidFlag | batchFlag))
+			rec := recHeader + (total+7)&^7
+			seg := uint64(binary.LittleEndian.Uint32(c.data[off+4:]))
+			if total == 0 || total > MaxBatch || c.tail+rec > head || off+rec > c.cap || (n&batchFlag != 0 && (seg == 0 || seg > MaxDatagram)) {
+				// Not a record this producer wrote: resume at its head.
+				c.lost++
+				c.tail = head
+				atomic.StoreUint64(c.h.u64(24), c.tail)
+				continue
+			}
+			if n&voidFlag != 0 {
+				// A reservation the producer gave up: its space, no datagram.
+				c.tail += rec
+				atomic.StoreUint64(c.h.u64(24), c.tail)
+				continue
+			}
+			c.brec, c.boff, c.bleft, c.bseg = rec, off+recHeader, total, seg
 			continue
 		}
 		rec := uint64(recHeader + pad8(int(n)))
@@ -329,6 +403,17 @@ func (c *Consumer) Peek() []byte {
 // Advance releases the datagram Peek returned. Without a pending Peek it
 // does nothing.
 func (c *Consumer) Advance() {
+	if c.bcur > 0 {
+		c.boff += c.bcur
+		c.bleft -= c.bcur
+		c.bcur = 0
+		if c.bleft == 0 {
+			c.tail += c.brec
+			c.brec = 0
+			atomic.StoreUint64(c.h.u64(24), c.tail)
+		}
+		return
+	}
 	if c.pend == 0 {
 		return
 	}
@@ -371,3 +456,7 @@ func (c *Consumer) Close() error {
 	_ = c.f.Close()
 	return err
 }
+
+// readable reports whether this package's Consumer understands a ring of
+// header version v.
+func readable(v uint32) bool { return v == version || v == versionOne }
