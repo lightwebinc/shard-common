@@ -41,6 +41,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -54,7 +55,11 @@ const (
 	version    = 1
 	headerSize = 64
 	skipMarker = 0xFFFFFFFF
-	recHeader  = 8
+	// voidFlag on a record's length marks space a producer reserved and gave
+	// up (reserve.go): the consumer steps over it. A consumer built before
+	// reservations reads it as a torn record and resumes at the head.
+	voidFlag  = 0x80000000
+	recHeader = 8
 	// MinCapacity is the smallest data region accepted: room for a few
 	// jumbo datagrams.
 	MinCapacity = 1 << 20
@@ -89,6 +94,15 @@ type Producer struct {
 	data []byte
 	cap  uint64
 	head uint64 // the producer's own copy of head
+
+	// Reservations (reserve.go). mu guards everything below and the
+	// producer's writes; resv is where the next reservation starts (head
+	// when none is outstanding), out the reservations not yet published, in
+	// order, pins those whose memory a caller still reads.
+	mu   sync.Mutex
+	resv uint64
+	out  []*Reservation
+	pins []*Reservation
 }
 
 // Create makes the ring file at path with a data region of capacity bytes,
@@ -143,8 +157,24 @@ func (p *Producer) Write(b []byte) error {
 	if len(b) > MaxDatagram {
 		return ErrTooLarge
 	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if len(p.out) > 0 {
+		// Behind reservations not yet published: the datagram takes its
+		// place after them and is published with them, in order.
+		r, err := p.reserveLocked([]int{len(b)})
+		if err != nil {
+			p.drop()
+			return err
+		}
+		copy(r.bufs[0], b)
+		p.unpinLocked(r)
+		r.done = true
+		p.publishLocked()
+		return nil
+	}
 	need := uint64(recHeader + pad8(len(b)))
-	tail := p.h.tail()
+	tail := p.floorLocked()
 	off := p.head % p.cap
 	// A record never crosses the end: skip the rest of the region first.
 	if off+need > p.cap {
@@ -157,6 +187,7 @@ func (p *Producer) Write(b []byte) error {
 			binary.LittleEndian.PutUint32(p.data[off:], skipMarker)
 		}
 		p.head += skip
+		p.resv = p.head
 		off = 0
 	}
 	if p.head+need-tail > p.cap {
@@ -167,6 +198,7 @@ func (p *Producer) Write(b []byte) error {
 	binary.LittleEndian.PutUint32(p.data[off+4:], 0)
 	copy(p.data[off+recHeader:], b)
 	p.head += need
+	p.resv = p.head
 	atomic.StoreUint64(p.h.u64(16), p.head)
 	return nil
 }
@@ -311,6 +343,14 @@ func (c *Consumer) Peek() []byte {
 		if n == skipMarker {
 			c.tail += c.cap - off
 			continue
+		}
+		if n&voidFlag != 0 {
+			// A reservation the producer gave up: its space, no datagram.
+			if rec := uint64(recHeader + pad8(int(n&^voidFlag))); n&^voidFlag <= MaxDatagram && c.tail+rec <= head && off+rec <= c.cap {
+				c.tail += rec
+				atomic.StoreUint64(c.h.u64(24), c.tail)
+				continue
+			}
 		}
 		rec := uint64(recHeader + pad8(int(n)))
 		if n > MaxDatagram || c.tail+rec > head || off+rec > c.cap {
