@@ -169,12 +169,13 @@ func (p *Producer) Write(b []byte) error {
 	if len(p.out) > 0 {
 		// Behind reservations not yet published: the datagram takes its
 		// place after them and is published with them, in order.
-		r, err := p.reserveLocked(len(b), 1, len(b))
+		r, err := p.reserveLocked(len(b))
 		if err != nil {
 			p.drop()
 			return err
 		}
 		copy(r.buf, b)
+		binary.LittleEndian.PutUint32(p.data[r.hdr:], uint32(len(b)))
 		p.unpinLocked(r)
 		r.done = true
 		p.publishLocked()

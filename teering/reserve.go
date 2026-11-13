@@ -46,28 +46,29 @@ type Reservation struct {
 	done       bool
 }
 
-// Bytes is the run's memory: its datagrams back to back, each seg bytes but
-// the last. It is the producer's until Commit; after Commit it must not be
+// Bytes is the run's memory: its datagrams back to back, each the same size
+// but the last. It is the producer's until Commit; after Commit it must not be
 // written, and may be read until Unpin.
 func (r *Reservation) Bytes() []byte { return r.buf }
 
-// Reserve reserves a run of count datagrams, each seg bytes except the last,
-// which is last bytes (0 < last <= seg), and returns the reservation, or
-// ErrNoRoom when the ring cannot hold it now (the consumer has not released
-// enough, or released space is still pinned): the caller then sends another
-// way and may Write the datagrams, which counts a drop when that fails too.
-// ErrTooLarge for a datagram over MaxDatagram or a run over MaxBatch.
-func (p *Producer) Reserve(seg, count, last int) (*Reservation, error) {
-	if seg <= 0 || count <= 0 || last <= 0 || last > seg || seg > MaxDatagram || (count-1)*seg+last > MaxBatch {
+// Reserve reserves total bytes for a run of datagrams and returns the
+// reservation, or ErrNoRoom when the ring cannot hold it now (the consumer
+// has not released enough, or released space is still pinned): the caller
+// then sends another way and may Write the datagrams, which counts a drop
+// when that fails too. ErrTooLarge for a run over MaxBatch. How the run
+// divides into datagrams is said at Commit, once the producer has built
+// them.
+func (p *Producer) Reserve(total int) (*Reservation, error) {
+	if total <= 0 || total > MaxBatch {
 		return nil, ErrTooLarge
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return p.reserveLocked(seg, count, last)
+	return p.reserveLocked(total)
 }
 
-func (p *Producer) reserveLocked(seg, count, last int) (*Reservation, error) {
-	total := uint64((count-1)*seg + last)
+func (p *Producer) reserveLocked(n int) (*Reservation, error) {
+	total := uint64(n)
 	need := recHeader + (total+7)&^7
 	if need > p.cap {
 		return nil, ErrTooLarge
@@ -88,12 +89,11 @@ func (p *Producer) reserveLocked(seg, count, last int) (*Reservation, error) {
 		pos += skip
 		off = 0
 	}
-	word := uint32(total)
-	if count > 1 {
-		word |= batchFlag
-	}
-	binary.LittleEndian.PutUint32(p.data[off:], word)
-	binary.LittleEndian.PutUint32(p.data[off+4:], uint32(seg))
+	// Until Commit says how the run divides, its record is void: nothing
+	// reads it before the head passes it, and a producer that dies holding
+	// it leaves space a later consumer steps over.
+	binary.LittleEndian.PutUint32(p.data[off:], uint32(total)|voidFlag)
+	binary.LittleEndian.PutUint32(p.data[off+4:], 0)
 	r := &Reservation{start: p.resv, end: pos + need, hdr: off,
 		buf: p.data[off+recHeader : off+recHeader+total : off+recHeader+total]}
 	p.resv = r.end
@@ -103,9 +103,22 @@ func (p *Producer) reserveLocked(seg, count, last int) (*Reservation, error) {
 }
 
 // Commit publishes r's datagrams to the consumer, once every reservation
-// made before it is committed or void. r stays pinned until Unpin.
-func (p *Producer) Commit(r *Reservation) {
+// made before it is committed or void: the run is datagrams of seg bytes
+// each, the last the remainder (seg >= the run's length: one datagram). r
+// stays pinned until Unpin. A seg that is not a datagram's size (zero, or
+// over MaxDatagram for a run of several) voids the run.
+func (p *Producer) Commit(r *Reservation, seg int) {
 	p.mu.Lock()
+	if !r.done {
+		total := len(r.buf)
+		switch {
+		case seg >= total && total <= MaxDatagram:
+			binary.LittleEndian.PutUint32(p.data[r.hdr:], uint32(total))
+		case seg > 0 && seg <= MaxDatagram && seg < total:
+			binary.LittleEndian.PutUint32(p.data[r.hdr+4:], uint32(seg))
+			binary.LittleEndian.PutUint32(p.data[r.hdr:], uint32(total)|batchFlag)
+		}
+	}
 	r.done = true
 	p.publishLocked()
 	p.mu.Unlock()
@@ -116,10 +129,7 @@ func (p *Producer) Commit(r *Reservation) {
 // datagrams will not be sent after all. Void after Commit only unpins.
 func (p *Producer) Void(r *Reservation) {
 	p.mu.Lock()
-	if !r.done {
-		binary.LittleEndian.PutUint32(p.data[r.hdr:], uint32(len(r.buf))|voidFlag)
-		r.done = true
-	}
+	r.done = true // the record has been void since Reserve
 	p.unpinLocked(r)
 	p.publishLocked()
 	p.mu.Unlock()
