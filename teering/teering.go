@@ -12,7 +12,8 @@
 //
 //	Offset  Size  Field
 //	 0      4     Magic "TEER"
-//	 4      4     Version (1)
+//	 4      4     Version (2; a consumer also reads version 1, which has no
+//	              reserved or run records)
 //	 8      8     Capacity of the data region in bytes (a multiple of 8)
 //	16      8     Head: bytes the producer has published, monotonic
 //	24      8     Tail: bytes the consumer has released, monotonic
@@ -52,7 +53,8 @@ import (
 
 const (
 	magic      = 0x52454554 // "TEER" little endian
-	version    = 1
+	version    = 2          // 1: single-datagram records only; 2 adds void and run records (reserve.go)
+	versionOne = 1
 	headerSize = 64
 	skipMarker = 0xFFFFFFFF
 	// voidFlag on a record's length marks space a producer reserved and gave
@@ -249,7 +251,8 @@ type Consumer struct {
 }
 
 // Attach maps the ring file at path. The file must have been created by a
-// Producer (ErrBadHeader otherwise).
+// Producer (ErrBadHeader otherwise). A ring of an earlier version is read as
+// it was written; one of a later version is refused, not misread.
 func Attach(path string) (*Consumer, error) {
 	f, err := os.OpenFile(path, os.O_RDWR, 0)
 	if err != nil {
@@ -270,7 +273,7 @@ func Attach(path string) (*Consumer, error) {
 		return nil, err
 	}
 	h := header{m}
-	if binary.LittleEndian.Uint32(m[0:]) != magic || binary.LittleEndian.Uint32(m[4:]) != version ||
+	if binary.LittleEndian.Uint32(m[0:]) != magic || !readable(binary.LittleEndian.Uint32(m[4:])) ||
 		h.capacity() != uint64(st.Size()-headerSize) {
 		_ = unix.Munmap(m)
 		_ = f.Close()
@@ -453,3 +456,7 @@ func (c *Consumer) Close() error {
 	_ = c.f.Close()
 	return err
 }
+
+// readable reports whether this package's Consumer understands a ring of
+// header version v.
+func readable(v uint32) bool { return v == version || v == versionOne }

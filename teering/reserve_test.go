@@ -2,6 +2,7 @@ package teering
 
 import (
 	"bytes"
+	"encoding/binary"
 	"errors"
 	"math/rand"
 	"path/filepath"
@@ -190,13 +191,18 @@ func TestConcurrentReservations(t *testing.T) {
 	go func() {
 		defer close(done)
 		buf := make([]byte, MaxDatagram)
-		total := 0
+		total, stopped := 0, false
 		for total < writers*each {
 			n := c.Next(buf)
 			if n == 0 {
+				// Stop only on an empty read that follows the stop: a
+				// datagram committed just before it is still read.
+				if stopped {
+					return
+				}
 				select {
 				case <-stop:
-					return
+					stopped = true
 				default:
 				}
 				continue
@@ -238,8 +244,8 @@ func TestConcurrentReservations(t *testing.T) {
 		}(w)
 	}
 	wg.Wait()
-	<-done
 	close(stop)
+	<-done
 	for w, n := range seen {
 		if n != each {
 			t.Fatalf("writer %d: %d of %d datagrams read", w, n, each)
@@ -269,5 +275,37 @@ func TestUncommittedIsVoidOnDisk(t *testing.T) {
 	p.Unpin(d)
 	if got := drain(t, c); len(got) != 0 || c.Lost() != 0 {
 		t.Fatalf("a run committed with no datagram size was read (%d datagrams, lost %d)", len(got), c.Lost())
+	}
+}
+
+// A ring written by a version-1 producer (single-datagram records only) is
+// still read; a ring of a version this package does not know is refused, not
+// misread.
+func TestHeaderVersions(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "ring")
+	p, err := Create(path, MinCapacity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = p.Close() }()
+	if v := binary.LittleEndian.Uint32(p.m[4:]); v != 2 {
+		t.Fatalf("a new ring has header version %d, want 2", v)
+	}
+	binary.LittleEndian.PutUint32(p.m[4:], 1)
+	if err := p.Write([]byte("one")); err != nil {
+		t.Fatal(err)
+	}
+	c, err := Attach(path)
+	if err != nil {
+		t.Fatalf("a version-1 ring was refused: %v", err)
+	}
+	buf := make([]byte, 16)
+	if n := c.Next(buf); string(buf[:n]) != "one" {
+		t.Fatalf("read %q from a version-1 ring", buf[:n])
+	}
+	_ = c.Close()
+	binary.LittleEndian.PutUint32(p.m[4:], 3)
+	if _, err := Attach(path); !errors.Is(err, ErrBadHeader) {
+		t.Fatalf("a version-3 ring: %v, want ErrBadHeader", err)
 	}
 }
