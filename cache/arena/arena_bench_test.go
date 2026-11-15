@@ -87,11 +87,17 @@ func BenchmarkStoreArenaParallel(b *testing.B) {
 	ctx := context.Background()
 	b.SetBytes(fragSize)
 	b.ReportAllocs()
-	var next atomic.Uint64
+	var next, failed atomic.Uint64
 	b.RunParallel(func(pb *testing.PB) {
 		var k [26]byte
 		for pb.Next() {
-			_ = a.Set(ctx, frameKey(&k, next.Add(1)), frag, time.Minute)
+			if err := a.Set(ctx, frameKey(&k, next.Add(1)), frag, time.Minute); err != nil {
+				failed.Add(1)
+			}
 		}
 	})
+	// A refused write stored nothing: it must not count toward the rate.
+	if n := failed.Load(); n != 0 {
+		b.Fatalf("%d writes failed", n)
+	}
 }
