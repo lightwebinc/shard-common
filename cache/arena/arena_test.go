@@ -6,7 +6,9 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"runtime"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -479,6 +481,103 @@ func TestConcurrentUse(t *testing.T) {
 		})
 	}
 	wg.Wait()
+}
+
+// Writers copy outside the lock, each on space pinned for the copy. On a
+// block only a few records long a writer keeps meeting space another is
+// still copying into: it waits for that copy, and is never refused (ErrBusy
+// is for a caller's lease), and a hit is still the key's own value.
+func TestWritersWaitForEachOther(t *testing.T) {
+	const n = 4 << 10
+	b := newArena(t, Options{Bytes: 3*n + 512})
+	const writers, per = 8, 2000
+	var wg sync.WaitGroup
+	for w := range writers {
+		wg.Go(func() {
+			for i := range per {
+				id := w*per + i
+				if err := b.Set(ctx, key(id), val(id, n), time.Minute); err != nil {
+					t.Errorf("Set(%d): %v", id, err)
+					return
+				}
+				if got, _ := b.Get(ctx, key(id)); got != nil && !bytes.Equal(got, val(id, n)) {
+					t.Errorf("Get(%d) returned other bytes", id)
+					return
+				}
+			}
+		})
+	}
+	wg.Wait()
+	if got := b.Leased(); got != 0 {
+		t.Fatalf("%d pins left after every write returned", got)
+	}
+}
+
+// A write that needs space another write has pinned does not store before
+// that pin is released, and stores once it is. The test holds the pin itself,
+// so it shows the wait and the release; that a writer's own copy is such a
+// pin is what TestWritersWaitForEachOther exercises.
+//
+// A writer yields for a pin a bounded number of times (pinRetries) and is then
+// refused with ErrBusy. A test goroutine kept off the CPU for that long has
+// shown nothing either way, so that outcome repeats the attempt.
+func TestWriteWaitsForAPin(t *testing.T) {
+	const n = 4 << 10
+	for attempt := 0; attempt < 20; attempt++ {
+		b := newArena(t, Options{Bytes: 2 * n})
+		// Pin the block's first record, as a write in progress does.
+		b.mu.Lock()
+		pos, err := b.take(n)
+		if err != nil {
+			b.mu.Unlock()
+			t.Fatal(err)
+		}
+		seq := b.leases.grant(pos, true)
+		b.mu.Unlock()
+
+		// The next record does not fit beside the pinned one: it needs its space.
+		var released atomic.Bool
+		type result struct {
+			err   error
+			after bool // the pin was released before Set returned
+		}
+		done := make(chan result, 1)
+		go func() {
+			err := b.Set(ctx, key(1), val(1, n), time.Minute)
+			done <- result{err, released.Load()}
+		}()
+		for range 200 {
+			runtime.Gosched() // let the writer meet the pin
+		}
+		released.Store(true)
+		b.mu.Lock()
+		b.leases.finish(seq)
+		b.mu.Unlock()
+
+		var r result
+		select {
+		case r = <-done:
+		case <-time.After(5 * time.Second):
+			t.Fatal("the write did not finish after the pin was released")
+		}
+		if errors.Is(r.err, ErrBusy) {
+			continue // the writer spent its whole retry budget before the release
+		}
+		if r.err != nil {
+			t.Fatalf("a write waiting on a pin failed: %v", r.err)
+		}
+		if !r.after {
+			t.Fatal("the write stored while the pin stood")
+		}
+		if got, _ := b.Get(ctx, key(1)); !bytes.Equal(got, val(1, n)) {
+			t.Fatal("the record stored after the wait is not the key's value")
+		}
+		if got := b.Leased(); got != 0 {
+			t.Fatalf("%d pins left", got)
+		}
+		return
+	}
+	t.Fatal("the writer spent its retry budget in every attempt: the pin was never released in time")
 }
 
 func TestCloseIdempotent(t *testing.T) {

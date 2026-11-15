@@ -46,6 +46,7 @@ import (
 	"fmt"
 	"hash/maphash"
 	"math"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -75,6 +76,11 @@ const (
 
 	// expireBatch bounds the items the expirer pops per shard lock hold.
 	expireBatch = 1024
+
+	// pinRetries bounds how often a write yields for space another write in
+	// progress has pinned before it gives up with ErrBusy. Only a block a few
+	// records long, written by many goroutines at once, ever waits at all.
+	pinRetries = 1 << 16
 
 	// compactSlack is how many stale items a shard tolerates beyond its entry
 	// count before it compacts its queues.
@@ -113,8 +119,10 @@ type Backend struct {
 	buf  []byte
 	size uint64
 
-	// mu guards every copy into and out of buf, the advance of cursor, and
-	// the lease table. Lock order: a shard's mu, then mu.
+	// mu guards the advance of cursor, the lease table and every copy out of
+	// buf. A copy into buf runs outside it, into space the lease table pins
+	// for as long as the copy takes (see write). Lock order: a shard's mu,
+	// then mu.
 	mu sync.Mutex
 	// cursor is the count of bytes ever taken from the block. The block holds
 	// the absolute positions [cursor-size, cursor); position p is at
@@ -173,12 +181,45 @@ type shard struct {
 	items  int // items in all queues; items - len(idx) are stale
 }
 
-// leaseTable is the leases outstanding, in the order granted, as a ring.
+// leaseTable is the leases outstanding, in the order granted, as a ring. A
+// write in progress holds an entry too (a pin): the same rule that keeps the
+// block off a caller's lease keeps it off the space a writer is copying into.
 type leaseTable struct {
 	pos  []uint64
 	done []bool
+	pin  []bool // the entry is a write in progress, not a caller's lease
 	head uint64 // next sequence number
 	tail uint64 // oldest outstanding
+}
+
+// full reports a table with no entry to give.
+func (lt *leaseTable) full() bool { return lt.head-lt.tail == uint64(len(lt.pos)) }
+
+// grant records pos as outstanding and returns its sequence number. The
+// caller holds mu and has checked full.
+func (lt *leaseTable) grant(pos uint64, pin bool) uint64 {
+	i := lt.head & uint64(len(lt.pos)-1)
+	lt.pos[i], lt.done[i], lt.pin[i] = pos, false, pin
+	lt.head++
+	return lt.head - 1
+}
+
+// finish marks seq done and advances the tail past every finished entry. The
+// caller holds mu.
+func (lt *leaseTable) finish(seq uint64) {
+	mask := uint64(len(lt.pos) - 1)
+	if seq-lt.tail < lt.head-lt.tail { // outstanding
+		lt.done[seq&mask] = true
+		for lt.tail != lt.head && lt.done[lt.tail&mask] {
+			lt.tail++
+		}
+	}
+}
+
+// oldestIsPin reports that the oldest outstanding entry is a write in
+// progress: what it pins is released within the time a copy takes.
+func (lt *leaseTable) oldestIsPin() bool {
+	return lt.tail != lt.head && lt.pin[lt.tail&uint64(len(lt.pos)-1)]
 }
 
 var epoch = time.Now()
@@ -216,6 +257,7 @@ func New(opts Options) (*Backend, error) {
 	}
 	b.leases.pos = make([]uint64, slots)
 	b.leases.done = make([]bool, slots)
+	b.leases.pin = make([]bool, slots)
 	if opts.MaxKeys > 0 {
 		b.perShard = max(opts.MaxKeys/shardCount, 1)
 	}
@@ -264,22 +306,58 @@ func (b *Backend) at(pos uint64, n uint32) []byte {
 }
 
 // write copies val then key into the block and returns the record's place.
+// The space is taken under mu and the copy made outside it, with the space
+// pinned in the lease table meanwhile; ErrBusy means a caller's lease is in
+// the way.
 func (b *Backend) write(key, val []byte) (loc, error) {
 	if uint64(len(val)) > maxLen || uint64(len(key)) > maxLen {
 		return loc{}, ErrTooLarge
 	}
 	n := uint64(len(val)) + uint64(len(key))
-	b.mu.Lock()
-	pos, err := b.take(n)
-	if err != nil {
+	for attempt := 0; ; attempt++ {
+		b.mu.Lock()
+		pos, err := b.take(n)
+		if err != nil {
+			// Space pinned by another write in progress comes free within
+			// the time its copy takes: yield and take again, rather than
+			// refuse a write for a copy that is about to finish. A caller's
+			// lease is the caller's to release, and is refused at once.
+			retry := errors.Is(err, ErrBusy) && b.leases.oldestIsPin() && attempt < pinRetries
+			b.mu.Unlock()
+			if retry {
+				runtime.Gosched()
+				continue
+			}
+			return loc{}, err
+		}
+		off := pos % b.size
+		l := loc{pos: pos, vlen: uint32(len(val)), klen: uint32(len(key))}
+		if b.leases.full() {
+			// No entry to pin the space with: copy under the lock, as every
+			// write once did.
+			copy(b.buf[off:], val)
+			copy(b.buf[off+uint64(len(val)):], key)
+			b.mu.Unlock()
+			return l, nil
+		}
+		seq := b.leases.grant(pos, true)
 		b.mu.Unlock()
-		return loc{}, err
+
+		// The copy, outside the lock. Nothing reads these bytes yet (the
+		// record is indexed only after write returns) and the pin keeps the
+		// block from handing them to another write, so writers copy side by
+		// side: under the lock the whole cache stores at one core's copy
+		// rate, whatever the number of writers, and a writer fed faster
+		// than that (a 10G flow on a host with slow cores) drops the rest
+		// at its socket while its other threads sit idle.
+		copy(b.buf[off:], val)
+		copy(b.buf[off+uint64(len(val)):], key)
+
+		b.mu.Lock()
+		b.leases.finish(seq)
+		b.mu.Unlock()
+		return l, nil
 	}
-	off := pos % b.size
-	copy(b.buf[off:], val)
-	copy(b.buf[off+uint64(len(val)):], key)
-	b.mu.Unlock()
-	return loc{pos: pos, vlen: uint32(len(val)), klen: uint32(len(key))}, nil
 }
 
 // holds reports whether the record at l is intact and stored under key.
@@ -379,20 +457,21 @@ func (b *Backend) Lease(val []byte) Lease {
 	}
 	n := uint64(len(val)) + leaseKeyRoom
 	b.mu.Lock()
-	defer b.mu.Unlock()
 	lt := &b.leases
-	if lt.head-lt.tail == uint64(len(lt.pos)) {
+	if lt.full() {
+		b.mu.Unlock()
 		return Lease{}
 	}
 	pos, err := b.take(n)
 	if err != nil {
+		b.mu.Unlock()
 		return Lease{}
 	}
+	seq := lt.grant(pos, false)
+	b.mu.Unlock()
+	// The lease pins the space, so the copy needs no lock (see write).
 	copy(b.buf[pos%b.size:], val)
-	i := lt.head & uint64(len(lt.pos)-1)
-	lt.pos[i], lt.done[i] = pos, false
-	lt.head++
-	return Lease{Buf: b.at(pos, uint32(len(val))), pos: pos, seq: lt.head - 1}
+	return Lease{Buf: b.at(pos, uint32(len(val))), pos: pos, seq: seq}
 }
 
 // Commit stores the leased value under key without copying it. The lease
@@ -423,14 +502,7 @@ func (b *Backend) Release(l Lease) {
 		return
 	}
 	b.mu.Lock()
-	lt := &b.leases
-	mask := uint64(len(lt.pos) - 1)
-	if l.seq-lt.tail < lt.head-lt.tail { // outstanding
-		lt.done[l.seq&mask] = true
-		for lt.tail != lt.head && lt.done[lt.tail&mask] {
-			lt.tail++
-		}
-	}
+	b.leases.finish(l.seq)
 	b.mu.Unlock()
 }
 

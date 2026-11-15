@@ -3,6 +3,7 @@ package arena_test
 import (
 	"context"
 	"encoding/binary"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -72,4 +73,31 @@ func BenchmarkStoreArenaLease(b *testing.B) {
 		_ = l.Commit(ctx, key, ls, time.Minute)
 		l.Release(ls)
 	})
+}
+
+// BenchmarkStoreArenaParallel is BenchmarkStoreArena from every CPU at once:
+// the copy into the block is outside the cache's lock, so the stored rate
+// grows with the writers (until the memory bus is the limit).
+func BenchmarkStoreArenaParallel(b *testing.B) {
+	a, err := arena.New(arena.Options{Bytes: liveBytes})
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer func() { _ = a.Close() }()
+	ctx := context.Background()
+	b.SetBytes(fragSize)
+	b.ReportAllocs()
+	var next, failed atomic.Uint64
+	b.RunParallel(func(pb *testing.PB) {
+		var k [26]byte
+		for pb.Next() {
+			if err := a.Set(ctx, frameKey(&k, next.Add(1)), frag, time.Minute); err != nil {
+				failed.Add(1)
+			}
+		}
+	})
+	// A refused write stored nothing: it must not count toward the rate.
+	if n := failed.Load(); n != 0 {
+		b.Fatalf("%d writes failed", n)
+	}
 }
