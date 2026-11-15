@@ -481,6 +481,36 @@ func TestConcurrentUse(t *testing.T) {
 	wg.Wait()
 }
 
+// Writers copy outside the lock, each on space pinned for the copy. On a
+// block only a few records long a writer keeps meeting space another is
+// still copying into: it waits for that copy, and is never refused (ErrBusy
+// is for a caller's lease), and a hit is still the key's own value.
+func TestWritersWaitForEachOther(t *testing.T) {
+	const n = 4 << 10
+	b := newArena(t, Options{Bytes: 3*n + 512})
+	const writers, per = 8, 2000
+	var wg sync.WaitGroup
+	for w := range writers {
+		wg.Go(func() {
+			for i := range per {
+				id := w*per + i
+				if err := b.Set(ctx, key(id), val(id, n), time.Minute); err != nil {
+					t.Errorf("Set(%d): %v", id, err)
+					return
+				}
+				if got, _ := b.Get(ctx, key(id)); got != nil && !bytes.Equal(got, val(id, n)) {
+					t.Errorf("Get(%d) returned other bytes", id)
+					return
+				}
+			}
+		})
+	}
+	wg.Wait()
+	if got := b.Leased(); got != 0 {
+		t.Fatalf("%d pins left after every write returned", got)
+	}
+}
+
 func TestCloseIdempotent(t *testing.T) {
 	b := newArena(t, Options{Bytes: 1024})
 	if err := b.Close(); err != nil {
