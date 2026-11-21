@@ -2,7 +2,8 @@
 
 - Scope: the **emit side**. The `logging`, `hostinfo`, and `tracing` packages
   are wired into `shard-proxy`, `shard-listener`, `retry-endpoint` and
-  `shard-manifest` (the `subtx-generator` tools use `logging` only) and
+  `shard-manifest` (`teranode-bridge` uses `logging` and `hostinfo`; the
+  `subtx-generator` tools use `logging` only) and
   covered by the `multicast-test` e2e suite. Every component *produces* logs
   that are structured, self-identifying, and consistent.
 - Transport: the shipping agent and log store live outside the application
@@ -176,8 +177,8 @@ do. (Collector deployment is covered in
 
 ### 4. Host inventory at startup (one-shot, near-zero cost)
 
-When a component comes online it emits **one** structured `host.inventory`
-event (category 0, Info) capturing the static facts of the machine. One line per
+When a component that wires `hostinfo` comes online it emits **one**
+structured `host.inventory` event (category 0, Info) capturing the static facts of the machine. One line per
 process lifetime (no ongoing cost, no hot-path impact), and it answers "what was
 this box?" for every node in the fleet without SSH, and it is the join key that
 makes a later node_exporter series interpretable ("which of the 2000 proxies is
@@ -212,7 +213,7 @@ on the slow NIC / old kernel / undersized rmem").
 If a field can't be read on a platform, it is omitted: the inventory is
 best-effort and never blocks or fails startup. gopsutil is the only dependency
 `hostinfo` adds, and it lives in `shard-common/hostinfo` so every binary
-inherits it identically.
+that wires it inherits it identically.
 
 **Why a log and not a metric:** these are high-cardinality *strings* (CPU model,
 kernel release, NIC driver), and the descriptive payload belongs in a log event.

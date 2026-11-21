@@ -38,8 +38,9 @@
 //
 // A producer that opens an existing file resets its header in place and
 // stamps a new generation; a consumer whose generation no longer matches the
-// file's resumes at the producer's head and counts what it skipped as one
-// loss (the number skipped is unknown).
+// file's resumes at the producer's head and counts one loss if it had seen
+// data it had not read (the number skipped is unknown, and what the old
+// producer published after the consumer's last look is not counted).
 // A file that was replaced (another inode) is detected with Stale.
 package teering
 
@@ -309,7 +310,8 @@ func (c *Consumer) Stale() bool {
 // Next copies the next datagram into buf and returns its length, or 0 when
 // the ring is empty. A datagram longer than buf is skipped and counted as
 // lost. A producer that reopened the file (new generation) resets the
-// consumer to its head; what was unread counts as one loss.
+// consumer to its head; data the consumer had seen and not read counts as
+// one loss.
 func (c *Consumer) Next(buf []byte) int {
 	for {
 		v := c.Peek()
