@@ -1,10 +1,10 @@
 # Unified Component Logging
 
 - Scope: the **emit side**. The `logging`, `hostinfo`, and `tracing` packages
-  are wired into every service binary (`shard-proxy`, `shard-listener`,
-  `retry-endpoint`, `shard-manifest`, `subtx-generator`) and covered by the
-  `multicast-test` e2e suite. Every component *produces* logs that are
-  structured, self-identifying, and consistent.
+  are wired into `shard-proxy`, `shard-listener`, `retry-endpoint` and
+  `shard-manifest` (the `subtx-generator` tools use `logging` only) and
+  covered by the `multicast-test` e2e suite. Every component *produces* logs
+  that are structured, self-identifying, and consistent.
 - Transport: the shipping agent and log store live outside the application
   binaries. This document fixes the on-host output contract so that layer is
   configuration, not code; the transport standard (OTLP via a node-local
@@ -55,7 +55,7 @@ discipline**. Each new call site has an obvious home.
 | 0 | **Host inventory** *(one-shot)* | Info | no | `host.inventory`, emitted once at startup | host/os/cpu/mem/nic/sysctl (see §4) |
 | 1 | **Lifecycle** | Info | no | `shard-proxy starting`, `received signal, starting drain`, `drain complete`, `all workers stopped`, `shutdown complete` | base only |
 | 2 | **Config / capability** | Info | no | the capability summary as **one** `startup.config` event, not one line per feature | capabilities as attrs (see [§Log economy](#log-economy-brevity-is-a-requirement)) |
-| 3 | **Config warnings** | Warn | no | `deprecated -txid-dedup-* flags in use`, `unknown cache backend, using memory`, `redis dedup unavailable` | the offending value + fallback |
+| 3 | **Config warnings** | Warn | no | `deprecated -txid-dedup-* flags in use`, `redis dedup unavailable` | the offending value + fallback |
 | 4 | **Auto-config / adoption** | Info / Warn | no | `auto-config adopted new ShardBits (restart mode)`, `auto-join applied`, `live-resharding: bridging engine installed` | `shard_bits`, `mc_group_id`, `source_mode`, `epoch`, quorum |
 | 5 | **Fatal startup** | Error → exit | no | `configuration error`, `multicast interface not found`, `metrics init failed`, `invalid bind-source` | `error`, offending input |
 | 6 | **Runtime subsystem error** | Error | no | `worker exited with error`, `beacon listener error`, `sender exited with error`, `TCP ingress exited with error` | `error`, subsystem id (`worker`, `iface`, `group`) |
@@ -177,7 +177,7 @@ do. (Collector deployment is covered in
 ### 4. Host inventory at startup (one-shot, near-zero cost)
 
 When a component comes online it emits **one** structured `host.inventory`
-event (category 1, Info) capturing the static facts of the machine. One line per
+event (category 0, Info) capturing the static facts of the machine. One line per
 process lifetime (no ongoing cost, no hot-path impact), and it answers "what was
 this box?" for every node in the fleet without SSH, and it is the join key that
 makes a later node_exporter series interpretable ("which of the 2000 proxies is

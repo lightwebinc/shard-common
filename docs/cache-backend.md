@@ -34,22 +34,24 @@ type Backend interface {
 ```
 
 - **Keys/values are opaque `[]byte`.** Callers own namespacing; backends apply
-  no prefixes. Key shapes: `bsp:tx:`, `bsl:egr:…`, `bre:frame:`, `bre:dedup:`.
+  no prefixes. Key shapes: `bsp:tx:`, `bsl:egr:…`, `bre:frame:`, `bre:dedup:`,
+  `bre:proxy:`.
 - **Miss is `(nil, nil)`, never an error.**
 - **Fail-open contract.** Dedup callers treat a `SetNX` error as *proceed*; the
   frame store treats `Get`/`Set` errors as a miss. A backend outage must never
   stop frames from forwarding.
 - **Optional `OwnedSetter`.** `SetOwned` is `Set` for a value the caller hands
   over: the backend may keep the slice itself, and the caller must not touch
-  it afterward. The in-memory backend implements it (no copy); the networked
-  backends do not, and callers fall back to `Set`. The retry endpoint's ring
+  it afterward. The `memory` backend implements it (no copy); the arena and
+  networked backends do not, and callers fall back to `Set`. The retry endpoint's ring
   ingest uses it so a frame is copied once on its way into the cache.
 - **Optional `Leaser`.** For a caller that receives a value before it knows
   the key: `Lease` copies the value into the backend's own memory, `Commit`
   stores it under a key without a second copy, `Release` ends the caller's
   use of the leased bytes. `Lease` may answer an empty lease (the backend
   cannot take the value now); the caller then falls back to `Set`. The arena
-  backend implements it.
+  backend implements it, and the retry endpoint's ring ingest uses it with
+  that backend.
 
 Construction is via `cache.Open(ctx, cache.Config)` (fail-closed: dials and
 verifies redis/aerospike, returns an error rather than a degraded backend).
@@ -60,7 +62,9 @@ verifies redis/aerospike, returns an error rather than a degraded backend).
 `redis-addr`, `aerospike-hosts`, `aerospike-namespace`, `aerospike-set`,
 `cache-dial-timeout`, `cache-op-timeout`, each with an UPPERCASE env
 equivalent) onto a `flag.FlagSet` and returns the `Config`; services with
-bespoke flag names fill the struct themselves.
+bespoke flag names fill the struct themselves (the retry endpoint names the
+three memory caps `-cache-max-keys`, `-cache-max-bytes` and
+`-cache-arena-bytes`).
 
 ## Shipped backends
 
@@ -186,7 +190,7 @@ method signatures take `[]byte` so dedup callers add no conversions; the
 |-----------|---------|----------|---------------|
 | shard-proxy | ingress dedup | one `txidset.Store` (`bsp:tx:`) | `-txid-dedup-*` |
 | shard-listener | egress dedup + courtesy ingress mark | two `txidset.Store` (`bsl:egr:…`, `bsp:tx:`) | `-egress-dedup-*`, `-ingress-set-*` |
-| retry-endpoint | frame cache + retransmit dedup | `cache.Store` adapter over one `Backend` (`bre:frame:`, `bre:dedup:`) | `-cache-backend`, `-redis-addr`, `-aerospike-*` |
+| retry-endpoint | frame cache + retransmit dedup + NACK-proxy dedup | `cache.Store` adapter over one `Backend` (`bre:frame:`, `bre:dedup:`, `bre:proxy:`) | `-cache-backend`, `-redis-addr`, `-aerospike-*` |
 
 - `txidset.Config.Backend` carries the tier-2 `cache.Backend`. The deprecated
   `RedisAddr` field builds an internal redis backend when `Backend` is nil.
