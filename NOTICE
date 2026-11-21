@@ -39,4 +39,10 @@ this notice does not modify those licenses.
   github.com/redis/go-redis/v9      BSD 2-Clause License
   github.com/alicebob/miniredis/v2  MIT License (tests only)
 
+The license text of every module the library's packages link is
+reproduced in LICENSE-THIRD-PARTY, which is GENERATED from what those
+packages actually link rather than maintained by hand. Static linking
+discards the modules' own license files, so LICENSE-THIRD-PARTY and this
+NOTICE must travel with any binary built from this library.
+
 =========================================================================
