@@ -3,8 +3,8 @@
 // shard-listener's -retry-tee) mirrors received frames into a retry-endpoint's
 // tee-ingest socket (-tee-listen) over loopback UDP. The shard-proxy's
 // -retry-tee is a different mechanism: it mirrors its own egress as raw,
-// un-enveloped datagrams to the retry-endpoint's ordinary data port, where the
-// loopback source is the truthful origin.
+// un-enveloped datagrams (to the same -tee-listen socket, or the endpoint's
+// data port), where the loopback source is the truthful origin.
 //
 // # Why an envelope exists
 //

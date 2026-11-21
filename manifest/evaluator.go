@@ -19,10 +19,10 @@ type Adopted struct {
 	// SourceModeSSM reflects the adopted addressing model.
 	SourceModeSSM bool
 
-	// PilotGroups is the union of Flags.GroupsValid payloads from
-	// authoritative manifests that satisfy quorum. Used by listeners
-	// with auto-join enabled (the listener composes
-	// union(static, PilotGroups)).
+	// PilotGroups is the union of Flags.GroupsValid payloads from the
+	// currently-valid authoritative PilotOnly manifests; it is not gated
+	// by quorum or hysteresis. Used by listeners with auto-join enabled
+	// (the listener composes union(static, PilotGroups)).
 	PilotGroups []uint16
 
 	// SourceSet is the deduplicated union of Flags.SourcesValid

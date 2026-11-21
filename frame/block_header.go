@@ -14,6 +14,7 @@
 // BRC-135 frames are NOT retransmitted via BRC-126 on the primary fabric;
 // loss recovery is by re-emission from upstream BRC-131 or application-level
 // header sync.
+
 package frame
 
 import (
