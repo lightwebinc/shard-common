@@ -3,10 +3,11 @@
 // datagrams a proxy mirrors to its co-located retry endpoint without the
 // loopback UDP stack. The loopback tee copies every byte into socket buffers,
 // segments the GSO messages in software, delivers them through the loopback
-// device and copies them out again in the endpoint's recvmmsg; on the lab's
-// edge that cost the retry endpoint as many cycles as the proxy itself
-// (2026-11-10). The ring is one memcpy by the producer and one by the
-// consumer into its slot, with no syscall on the path.
+// device and copies them out again in the endpoint's recvmmsg, which can
+// cost the retry endpoint as many cycles as the proxy itself. The ring is one
+// memcpy by the producer (none when it builds its datagrams in the ring, see
+// [Producer.Reserve]) and one by the consumer into its slot, with no syscall
+// on the path.
 //
 // # Layout (little endian, the host's)
 //
@@ -23,9 +24,13 @@
 //	64      …     Data region, Capacity bytes
 //
 // A record in the data region is a 4-byte length, 4 reserved bytes and the
-// datagram, padded to 8 bytes. A record never crosses the region's end: when
-// the rest of the region is too short the producer writes a skip marker
-// (length 0xFFFFFFFF) and the consumer jumps to the next multiple of
+// datagram, padded to 8 bytes. Version 2 marks two more kinds in the length's
+// top bits: 0x40000000 a run of datagrams laid back to back (the length is
+// the run's bytes, the second word the size of every datagram but the last)
+// and 0x80000000 space a producer reserved and gave up, which the consumer
+// steps over (see [Producer.Reserve]). A record never crosses the region's
+// end: when the rest of the region is too short the producer writes a skip
+// marker (length 0xFFFFFFFF) and the consumer jumps to the next multiple of
 // Capacity. Head and tail are monotonic byte counts; an offset is the count
 // modulo Capacity. The producer publishes a record by storing head after the
 // bytes; the consumer releases one by storing tail after its copy. One
@@ -33,7 +38,9 @@
 //
 // A producer that opens an existing file resets its header in place and
 // stamps a new generation; a consumer whose generation no longer matches the
-// file's resumes at the producer's head and counts what it skipped as lost.
+// file's resumes at the producer's head and counts one loss if it had seen
+// data it had not read (the number skipped is unknown, and what the old
+// producer published after the consumer's last look is not counted).
 // A file that was replaced (another inode) is detected with Stale.
 package teering
 
@@ -303,7 +310,8 @@ func (c *Consumer) Stale() bool {
 // Next copies the next datagram into buf and returns its length, or 0 when
 // the ring is empty. A datagram longer than buf is skipped and counted as
 // lost. A producer that reopened the file (new generation) resets the
-// consumer to its head; what was unread counts as lost.
+// consumer to its head; data the consumer had seen and not read counts as
+// one loss.
 func (c *Consumer) Next(buf []byte) int {
 	for {
 		v := c.Peek()

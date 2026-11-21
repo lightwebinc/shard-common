@@ -11,15 +11,6 @@ import (
 	"github.com/lightwebinc/shard-common/cache/redis"
 )
 
-// Open constructs the [Backend] selected by cfg.Backend. It is fail-closed:
-// for the redis and aerospike backends it dials and verifies connectivity,
-// returning an error rather than a degraded backend. Callers that want
-// fail-open boot (run with tier-1 LRU only when the backend is down) should
-// catch the error and fall back to BackendNone themselves.
-//
-// BackendNone returns (nil, nil): the caller runs without a cross-instance
-// backend (dedup on tier-1 LRU only). Frame-store callers must reject a nil
-// backend.
 // The in-memory backend keeps a handed-over value without a copy.
 var _ OwnedSetter = (*memory.Backend)(nil)
 
@@ -42,6 +33,15 @@ type Leaser interface {
 
 var _ Leaser = (*arena.Backend)(nil)
 
+// Open constructs the [Backend] selected by cfg.Backend. It is fail-closed:
+// for the redis and aerospike backends it dials and verifies connectivity,
+// returning an error rather than a degraded backend. Callers that want
+// fail-open boot (run with tier-1 LRU only when the backend is down) should
+// catch the error and fall back to BackendNone themselves.
+//
+// BackendNone returns (nil, nil): the caller runs without a cross-instance
+// backend (dedup on tier-1 LRU only). Frame-store callers must reject a nil
+// backend.
 func Open(_ context.Context, cfg Config) (Backend, error) {
 	switch cfg.Backend {
 	case BackendNone, "":

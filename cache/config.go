@@ -52,14 +52,14 @@ type Config struct {
 
 // RegisterFlags wires the standard cache flags onto fs using the given flag
 // prefix (e.g. "" for the retry endpoint's frame cache, or "egress-dedup-" /
-// "ingress-dedup-" for the listener's two stores) and env prefix
+// "ingress-set-" for the listener's two stores) and env prefix
 // (e.g. "CACHE_", "EGRESS_DEDUP_"). It returns a *Config populated as flags
 // are parsed. Every flag has an UPPERCASE env-var equivalent, matching the
 // project convention.
 //
 // Services that already own bespoke flag names (the retry endpoint's
-// historical -cache-backend / -redis-addr) may instead build a Config
-// directly; RegisterFlags is a convenience for new wiring (proxy/listener).
+// -cache-backend / -redis-addr, the proxy's and listener's dedup flags)
+// build a Config directly; RegisterFlags is a convenience for new wiring.
 func RegisterFlags(fs *flag.FlagSet, flagPrefix, envPrefix string) *Config {
 	c := &Config{}
 	fs.StringVar(&c.Backend, flagPrefix+"cache-backend",

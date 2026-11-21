@@ -28,7 +28,7 @@ Codec summary (`frame` package):
 - **HashKey** = `XXH64(senderIPv6 ∥ groupIdx ∥ subtreeID)`, the unique
   `(sender, group, subtree)` flow id. **SeqNum** is a monotonic per-flow
   counter starting at 1. `0` means unstamped; the sender sets it or the proxy
-  stamps it in place (§6). Receivers track last-seen SeqNum per HashKey; a
+  stamps it in place (§6-8). Receivers track last-seen SeqNum per HashKey; a
   jump > 1 is a gap that triggers BRC-126 NACK retransmission.
 - **Payload**: raw serialized BSV tx (BRC-12) or BRC-30 Extended Format
   (BRC-128), no P2P envelope. EF payloads self-identify via the 6-byte marker
@@ -55,7 +55,7 @@ Offset  Size  Field
 ```
 
 **TCP ingress:** grammar is detected once per connection from the leading
-bytes (framed magic, `0xBEEF` record, or bare transaction; see §7). On a
+bytes (framed magic, `0xBEEF` record, or bare transaction; see §6-8). On a
 framed stream the reader reads 44 bytes to detect the version, then completes
 the header read if BRC-124/BRC-128 (48 more bytes). No separate port is needed
 for BRC-12 and BRC-124/BRC-128; both formats share the same listener.

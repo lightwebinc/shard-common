@@ -23,7 +23,7 @@ by `shard-proxy`, `shard-listener`, `retry-endpoint`, `subtx-generator`,
 | `seqhash`  | XXH64 per-flow HashKey computation                                      |
 | `sequence` | Per-shard monotonic counters (`sync/atomic`, zero-alloc)                |
 | `pow`      | Stateless block-header proof-of-work gate: one double-SHA256 + big-int compare against the header's claimed target plus a configurable difficulty floor. Permissionless ingress spam filter, deliberately **not** full consensus validation (no chain context). |
-| `cache`    | Modular TTL'd KV backend with atomic `SetNX` (create-only). Implementations: `memory`, `redis` (Redis/Valkey/Dragonfly/Cluster), `aerospike` (Community Edition). Shared by `txidset` (tier-2) and the retry-endpoint frame store. See [`docs/cache-backend.md`](docs/cache-backend.md). |
+| `cache`    | Modular TTL'd KV backend with atomic `SetNX` (create-only). Implementations: `memory`, `arena` (in-memory, one block allocated at start), `redis` (Redis/Valkey/Dragonfly/Cluster), `aerospike` (Community Edition). Shared by `txidset` (tier-2) and the retry-endpoint frame store. See [`docs/cache-backend.md`](docs/cache-backend.md). |
 | `txidset`  | Two-tier TxID dedup: tier-1 in-process LRU (zero-alloc hot path) + optional tier-2 `cache.Backend` SETNX; fail-open on backend errors |
 | `netjoin`  | IPv6 multicast `Join`/`Leave`: branches `IPV6_JOIN_GROUP` (ASM) and `MCAST_JOIN_SOURCE_GROUP` (SSM, RFC 3678) by source-list presence; token-bucket `Limiter` and `Jitter` helper for cold-start storm protection at scale. Powers the SSM join sites in every receiver. |
 | `teewire`  | Loopback tee envelope (24-byte header, magic `TEE1`): carries a mirrored datagram's original source so a co-resident retry-endpoint's per-source cache counters stay truthful when fed over loopback (listener `-retry-tee` → retry `-tee-listen`). Loopback-only trust model; see the package godoc. |
@@ -62,7 +62,7 @@ for the system-level designs.
 
 ## Requirements
 
-- Go 1.26 or later
+- Go 1.26.2 or later
 
 ## Build
 
