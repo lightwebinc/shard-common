@@ -119,7 +119,8 @@ type ReceiverConfig struct {
 	SenderIdle time.Duration
 	// OnChange is called when a topic becomes live for a principal, or
 	// stops being live. Calls arrive in order, one at a time, without the
-	// receiver's lock held.
+	// receiver's lock held. A call may use the receiver; what that changes
+	// is reported after the call returns.
 	OnChange func(principal string, topic TopicID, live bool)
 }
 
@@ -240,9 +241,8 @@ type Receiver struct {
 	principals map[string]*principalState
 	counters   map[string]*principalCounters // while the principal has a sender
 	events     []change
+	flushing   bool // changes are being delivered
 	stats      ReceiverStats
-
-	cbMu sync.Mutex
 }
 
 // NewReceiver builds a receiver. It panics if the configuration has no
@@ -401,14 +401,13 @@ func (r *Receiver) handle(src netip.AddrPort, pkt []byte, now time.Time) []byte 
 	if ann != nil {
 		r.stats.Announces++
 		var statuses []RecordStatus
-		var defaultDelivery bool
+		// What follows the records applies to every record.
+		delivery, refuse := false, StatusOK
 		if len(ann.Ext) > 0 {
-			if tlvs, err := ParseTLVs(ann.Ext); err == nil {
-				_, defaultDelivery = FindTLV(tlvs, ExtDelivery)
-			}
+			delivery, refuse = readExt(ann.Ext)
 		}
 		for i := range ann.Records {
-			st := r.apply(s, &ann.Records[i], h.Seq, nowNS, defaultDelivery)
+			st := r.apply(s, &ann.Records[i], h.Seq, nowNS, delivery, refuse)
 			if st != StatusOK {
 				statuses = append(statuses, RecordStatus{Index: uint16(i), Status: st})
 				if st.Refused() {
@@ -465,7 +464,9 @@ func (r *Receiver) handle(src netip.AddrPort, pkt []byte, now time.Time) []byte 
 }
 
 // apply applies one record to a sender's set and returns its status.
-func (r *Receiver) apply(s *session, rec *Record, seq uint64, now int64, defaultDelivery bool) Status {
+// delivery and refuse are what the extensions after the records say of
+// every record: that a delivery address is given, and a refusal.
+func (r *Receiver) apply(s *session, rec *Record, seq uint64, now int64, delivery bool, refuse Status) Status {
 	_, held := s.entries[rec.Topic]
 	if rec.Lifetime == LifetimeWithdraw {
 		if held {
@@ -475,26 +476,16 @@ func (r *Receiver) apply(s *session, rec *Record, seq uint64, now int64, default
 		}
 		return StatusOK
 	}
-	delivery := defaultDelivery
-	if len(rec.Ext) > 0 {
-		tlvs, err := ParseTLVs(rec.Ext)
-		if err != nil {
-			if held {
-				r.remove(s, rec.Topic)
-			}
-			return StatusUnsupported
+	if refuse == StatusOK && len(rec.Ext) > 0 {
+		var d bool
+		d, refuse = readExt(rec.Ext)
+		delivery = delivery || d
+	}
+	if refuse != StatusOK {
+		if held {
+			r.remove(s, rec.Topic)
 		}
-		for _, t := range tlvs {
-			switch {
-			case t.Type == ExtDelivery:
-				delivery = true
-			case t.Type&ExtCritical != 0:
-				if held {
-					r.remove(s, rec.Topic)
-				}
-				return StatusUnsupported
-			}
-		}
+		return refuse
 	}
 	// Scope first: a topic this path does not deliver is not processed at
 	// all, so it is never charged against a bound, a cap or a rate.
@@ -549,6 +540,30 @@ func (r *Receiver) apply(s *session, rec *Record, seq uint64, now int64, default
 		return r.noter.Note(s.principal, rec.Topic)
 	}
 	return StatusOK
+}
+
+// readExt reads an extension area: whether it gives a delivery address, and
+// the status that refuses what it applies to, or [StatusOK]. An area that
+// does not parse, or that has a critical type this hop does not know, is
+// refused with [StatusUnsupported], and a delivery address that does not
+// parse with [StatusBadAddress].
+func readExt(ext []byte) (delivery bool, refuse Status) {
+	tlvs, err := ParseTLVs(ext)
+	if err != nil {
+		return false, StatusUnsupported
+	}
+	for _, t := range tlvs {
+		switch {
+		case t.Type == ExtDelivery:
+			if _, err := ParseDelivery(t.Value); err != nil {
+				return false, StatusBadAddress
+			}
+			delivery = true
+		case t.Type&ExtCritical != 0:
+			return false, StatusUnsupported
+		}
+	}
+	return delivery, StatusOK
 }
 
 // judge decides whether a principal may hold a topic now, and whether it
@@ -1000,26 +1015,55 @@ func (r *Receiver) count(f func(*ReceiverStats)) {
 	r.mu.Unlock()
 }
 
-// flush delivers queued changes in order. It is called with no lock held.
+// senderAddrs returns the address of every sender tracked now.
+func (r *Receiver) senderAddrs() map[netip.AddrPort]struct{} {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	m := make(map[netip.AddrPort]struct{}, len(r.sessions))
+	for _, s := range r.sessions {
+		m[s.addr] = struct{}{}
+	}
+	return m
+}
+
+// flush delivers queued changes in order. It is called with no lock held. A
+// callback that calls the receiver queues more, and the flush already under
+// way delivers them once the callback returns, so a nested call never waits
+// for itself.
 func (r *Receiver) flush() {
+	r.mu.Lock()
 	if r.cfg.OnChange == nil {
-		r.mu.Lock()
 		r.events = r.events[:0]
 		r.mu.Unlock()
 		return
 	}
-	r.cbMu.Lock()
-	defer r.cbMu.Unlock()
+	if r.flushing {
+		r.mu.Unlock()
+		return
+	}
+	r.flushing = true
+	finished := false
+	defer func() {
+		if !finished {
+			// A callback panicked. The next flush delivers the rest.
+			r.mu.Lock()
+			r.flushing = false
+			r.mu.Unlock()
+		}
+	}()
 	for {
-		r.mu.Lock()
 		ev := r.events
 		r.events = nil
-		r.mu.Unlock()
 		if len(ev) == 0 {
+			r.flushing = false
+			finished = true
+			r.mu.Unlock()
 			return
 		}
+		r.mu.Unlock()
 		for _, c := range ev {
 			r.cfg.OnChange(c.principal, c.topic, c.live)
 		}
+		r.mu.Lock()
 	}
 }

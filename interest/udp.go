@@ -67,7 +67,7 @@ func ServeReceiver(ctx context.Context, conn *net.UDPConn, r *Receiver, opts Ser
 						opts.OnError(err)
 					}
 				}
-				local.prune(now)
+				local.keepOnly(r.senderAddrs())
 			}
 		}
 	}()
@@ -85,15 +85,16 @@ func ServeReceiver(ctx context.Context, conn *net.UDPConn, r *Receiver, opts Ser
 			return err
 		}
 		pkt := buf[:n]
-		now := time.Now()
-		local.set(src, dst, now)
 		if opts.Resync != nil {
 			if h, err := DecodeHeader(pkt); err == nil && h.Type == MsgResync {
 				opts.Resync(src)
 				continue
 			}
 		}
-		if resp := r.Handle(src, pkt, now); resp != nil {
+		if resp := r.Handle(src, pkt, time.Now()); resp != nil {
+			// Only a source the policy knows is answered, so only such a
+			// source is remembered, and only while it is tracked.
+			local.set(src, dst)
 			if err := pc.write(resp, src, dst); err != nil && opts.OnError != nil {
 				opts.OnError(err)
 			}
@@ -105,40 +106,32 @@ func ServeReceiver(ctx context.Context, conn *net.UDPConn, r *Receiver, opts Ser
 // arrive at.
 type localAddrs struct {
 	mu sync.Mutex
-	m  map[netip.AddrPort]localAddr
+	m  map[netip.AddrPort]netip.Addr
 }
 
-type localAddr struct {
-	addr netip.Addr
-	at   time.Time
-}
+func newLocalAddrs() *localAddrs { return &localAddrs{m: map[netip.AddrPort]netip.Addr{}} }
 
-// localAddrsKept is how long an address is remembered after the sender's
-// last datagram: longer than any lifetime a receiver grants.
-const localAddrsKept = 2 * time.Hour
-
-func newLocalAddrs() *localAddrs { return &localAddrs{m: map[netip.AddrPort]localAddr{}} }
-
-func (l *localAddrs) set(src netip.AddrPort, dst netip.Addr, now time.Time) {
+func (l *localAddrs) set(src netip.AddrPort, dst netip.Addr) {
 	if !dst.IsValid() {
 		return
 	}
 	l.mu.Lock()
-	l.m[src] = localAddr{dst, now}
+	l.m[src] = dst
 	l.mu.Unlock()
 }
 
 func (l *localAddrs) get(src netip.AddrPort) netip.Addr {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	return l.m[src].addr
+	return l.m[src]
 }
 
-func (l *localAddrs) prune(now time.Time) {
+// keepOnly forgets every sender not in keep.
+func (l *localAddrs) keepOnly(keep map[netip.AddrPort]struct{}) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	for k, v := range l.m {
-		if now.Sub(v.at) > localAddrsKept {
+	for k := range l.m {
+		if _, ok := keep[k]; !ok {
 			delete(l.m, k)
 		}
 	}

@@ -47,31 +47,34 @@ type Delivery struct {
 	Source netip.Addr
 }
 
-// Validate checks that the fields agree with one another.
+// Validate checks that the fields agree with one another. Addresses are
+// checked as they are encoded: an IPv4-mapped IPv6 address is the IPv4
+// address.
 func (d *Delivery) Validate() error {
-	if !d.Addr.IsValid() {
+	addr, src := d.Addr.Unmap(), d.Source.Unmap()
+	if !addr.IsValid() {
 		return fmt.Errorf("interest: delivery without an address")
 	}
 	switch d.Kind {
 	case DeliverUnicast:
-		if d.Addr.IsMulticast() || d.Addr.IsUnspecified() {
-			return fmt.Errorf("interest: unicast delivery to %s", d.Addr)
+		if addr.IsMulticast() || addr.IsUnspecified() {
+			return fmt.Errorf("interest: unicast delivery to %s", addr)
 		}
-		if d.Source.IsValid() {
+		if src.IsValid() {
 			return fmt.Errorf("interest: unicast delivery names a source")
 		}
 	case DeliverMulticast:
-		if !d.Addr.IsMulticast() {
-			return fmt.Errorf("interest: multicast delivery to %s, which is not a group", d.Addr)
+		if !addr.IsMulticast() {
+			return fmt.Errorf("interest: multicast delivery to %s, which is not a group", addr)
 		}
-		if d.Source.IsValid() {
+		if src.IsValid() {
 			return fmt.Errorf("interest: any-source delivery names a source")
 		}
 	case DeliverMulticastSSM:
-		if !d.Addr.IsMulticast() {
-			return fmt.Errorf("interest: multicast delivery to %s, which is not a group", d.Addr)
+		if !addr.IsMulticast() {
+			return fmt.Errorf("interest: multicast delivery to %s, which is not a group", addr)
 		}
-		if !d.Source.IsValid() || d.Source.IsMulticast() || d.Source.Is4() != d.Addr.Is4() {
+		if !src.IsValid() || src.IsMulticast() || src.Is4() != addr.Is4() {
 			return fmt.Errorf("interest: source-specific delivery needs a unicast source of the group's family")
 		}
 	default:

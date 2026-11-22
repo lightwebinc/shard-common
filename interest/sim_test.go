@@ -490,7 +490,9 @@ func TestSenderRestartWithLowerSequence(t *testing.T) {
 	n.kick()
 	n.run(3 * time.Second)
 	sameSet(t, "receiver", r.Live("p"), want)
-	if up := c2.Upstreams()[0]; up.Stats.Stale == 0 || !up.Synced {
+	// One replay: the sweep that ends it counts from where the replay was
+	// first applied, not from where it started below the old run.
+	if up := c2.Upstreams()[0]; up.Stats.Stale == 0 || !up.Synced || up.Stats.Syncs != 1 || up.Stats.Mismatches != 0 {
 		t.Fatalf("upstream %+v", up)
 	}
 }
@@ -1258,16 +1260,17 @@ func TestDeliveryAddressIsNotHonored(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	x, y, z := topic("x"), topic("y"), topic("z")
+	x, y, z, w := topic("x"), topic("y"), topic("z"), topic("w")
 	c.Set(x, AppendTLV(nil, ExtDelivery, v))
 	c.Add(y)
 	c.Set(z, AppendTLV(nil, 0xC0, []byte("critical and unknown")))
+	c.Set(w, AppendTLV(nil, ExtDelivery, []byte{1, 2, 3}))
 	n.kick()
 	n.run(time.Second)
-	if c.Status(x) != StatusAddressNotHonored || c.Status(y) != StatusOK || c.Status(z) != StatusUnsupported {
-		t.Fatalf("x %v, y %v, z %v", c.Status(x), c.Status(y), c.Status(z))
+	if c.Status(x) != StatusAddressNotHonored || c.Status(y) != StatusOK || c.Status(z) != StatusUnsupported || c.Status(w) != StatusBadAddress {
+		t.Fatalf("x %v, y %v, z %v, w %v", c.Status(x), c.Status(y), c.Status(z), c.Status(w))
 	}
-	if !r.IsLive("p", x) || r.IsLive("p", z) {
+	if !r.IsLive("p", x) || r.IsLive("p", z) || r.IsLive("p", w) {
 		t.Fatal("held set")
 	}
 	// Changing the extensions of a held topic says it again.

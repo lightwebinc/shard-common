@@ -73,14 +73,18 @@ type ClientConfig struct {
 	// relay starts empty and learns its set from the senders below it, so
 	// it holds the sweep for as long as they take to check in. Until then
 	// its upstream keeps what the relay's previous run announced, and
-	// nothing that is still wanted stops being delivered.
+	// nothing that is still wanted stops being delivered. A hold ends at
+	// the latest two thirds of the granted lifetime after the replay
+	// begins, so that what the replay said is refreshed before it expires
+	// upstream.
 	SweepHold time.Duration
 	// OnStatus is called when the outcome for a topic changes: whether any
 	// upstream serves it, and if none does, why. Calls arrive in order, one
-	// at a time, without the client's lock held.
+	// at a time, without the client's lock held. A call may use the client;
+	// what that changes is reported after the call returns.
 	OnStatus func(topic TopicID, status Status)
-	// OnScope is called when what the upstreams deliver changes, without
-	// the client's lock held. See [Client.Scope].
+	// OnScope is called when what the upstreams deliver changes, under the
+	// same rules as OnStatus. See [Client.Scope].
 	OnScope func()
 }
 
@@ -205,17 +209,16 @@ type statusEvent struct {
 type Client struct {
 	cfg ClientConfig
 
-	mu     sync.Mutex
-	hops   uint8
-	want   map[TopicID]*wanted
-	noted  map[TopicID]Status // wanted topics no upstream serves
-	ups    []*upstream
-	events []statusEvent
-	scoped bool  // a scope changed since the last flush
-	holdTo int64 // first replays are not swept before this
-	wake   chan struct{}
-
-	cbMu sync.Mutex
+	mu       sync.Mutex
+	hops     uint8
+	want     map[TopicID]*wanted
+	noted    map[TopicID]Status // wanted topics no upstream serves
+	ups      []*upstream
+	events   []statusEvent
+	scoped   bool  // a scope changed since the last flush
+	holdTo   int64 // first replays are not swept before this
+	flushing bool  // callbacks are being delivered
+	wake     chan struct{}
 }
 
 // NewClient builds a client. It panics on a zero sender identity or an
@@ -672,28 +675,45 @@ func (c *Client) reaggregateAll() {
 // a row, and nothing heard since. One that has not answered yet is not down.
 func (u *upstream) down() bool { return !u.reachable && u.timeouts >= 3 }
 
+// flush delivers queued callbacks in order, one at a time. A callback that
+// calls the client queues more, and the flush already under way delivers
+// them once the callback returns, so a nested call never waits for itself.
 func (c *Client) flush() {
 	if c.cfg.OnStatus == nil && c.cfg.OnScope == nil {
 		return
 	}
-	c.cbMu.Lock()
-	defer c.cbMu.Unlock()
-	for {
-		c.mu.Lock()
-		ev := c.events
-		scoped := c.scoped
-		c.events = nil
-		c.scoped = false
+	c.mu.Lock()
+	if c.flushing {
 		c.mu.Unlock()
+		return
+	}
+	c.flushing = true
+	finished := false
+	defer func() {
+		if !finished {
+			// A callback panicked. The next flush delivers the rest.
+			c.mu.Lock()
+			c.flushing = false
+			c.mu.Unlock()
+		}
+	}()
+	for {
+		ev, scoped := c.events, c.scoped
+		c.events, c.scoped = nil, false
 		if len(ev) == 0 && !scoped {
+			c.flushing = false
+			finished = true
+			c.mu.Unlock()
 			return
 		}
+		c.mu.Unlock()
 		if scoped && c.cfg.OnScope != nil {
 			c.cfg.OnScope()
 		}
 		for _, e := range ev {
 			c.cfg.OnStatus(e.topic, e.status)
 		}
+		c.mu.Lock()
 	}
 }
 
@@ -848,6 +868,11 @@ func (c *Client) handleAck(u *upstream, a *Ack, now int64) {
 		u.stats.Stale++
 		if !SeqNewer(u.nextSeq, a.LastSeq) {
 			u.nextSeq = seqAfter(a.LastSeq)
+			if u.phase == phaseSync {
+				// Started below an earlier run, so nothing this replay
+				// sent was applied. Its sweep counts from where it can be.
+				u.since = u.nextSeq
+			}
 		}
 		c.requeue(u, b)
 		return
@@ -1183,10 +1208,15 @@ func (c *Client) pollUpstream(u *upstream, now int64, out *[]Datagram) int64 {
 			}
 		}
 		// The first replay of a sender that is still learning its set is
-		// not swept yet.
-		held := u.phase == phaseSync && u.stats.Syncs <= 1 && now < c.holdTo
+		// not swept yet, though never so late that what the replay said
+		// expires upstream before the sweep refreshes it.
+		holdTo := c.holdTo
+		if end := u.lastSync + 2*c.refreshInterval(u); end < holdTo {
+			holdTo = end
+		}
+		held := u.phase == phaseSync && u.stats.Syncs <= 1 && now < holdTo
 		if held {
-			earlier(c.holdTo)
+			earlier(holdTo)
 		}
 		// The scope normally arrives with an answer that has room for it.
 		// During a replay that can be a while off, or never come if there
@@ -1250,8 +1280,9 @@ func (c *Client) sendAnnounce(u *upstream, now int64, out *[]Datagram) (bool, in
 			}
 			continue
 		}
+		add := t.want
 		rec := Record{Topic: id}
-		if t.want {
+		if add {
 			rec.Lifetime = c.cfg.Lifetime
 			if rec.Lifetime == 0 {
 				rec.Lifetime = LifetimeDefault
@@ -1259,22 +1290,27 @@ func (c *Client) sendAnnounce(u *upstream, now int64, out *[]Datagram) (bool, in
 			rec.Ext = t.ext
 		}
 		if size+rec.size() > MaxDatagram {
-			if len(m.Records) == 0 {
-				// A record too large for any datagram can never be sent.
+			if len(m.Records) > 0 {
+				break
+			}
+			// A record too large for any datagram can never be sent, so
+			// the topic is refused here. What the upstream may hold under
+			// what was said before is withdrawn.
+			t.status = StatusUnsupported
+			c.reaggregate(id)
+			if !t.held && !t.unsure {
 				t.queued = false
 				t.ackVer = t.ver
-				t.status = StatusUnsupported
-				c.reaggregate(id)
 				continue
 			}
-			break
+			add, rec = false, Record{Topic: id}
 		}
 		size += rec.size()
 		t.queued = false
 		m.Records = append(m.Records, rec)
 		b.topics = append(b.topics, id)
 		b.vers = append(b.vers, t.ver)
-		b.adds = append(b.adds, t.want)
+		b.adds = append(b.adds, add)
 	}
 	u.queue = append(held, u.queue[n:]...)
 	if len(m.Records) == 0 {

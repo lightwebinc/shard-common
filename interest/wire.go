@@ -148,8 +148,8 @@ const (
 	// StatusUnsupported: refused. The record carries a critical extension
 	// this hop does not understand.
 	StatusUnsupported Status = 0x05
-	// StatusBadAddress: refused. The delivery address is not one this hop
-	// may deliver to for this sender.
+	// StatusBadAddress: refused. The delivery address does not parse, or is
+	// not one this hop may deliver to for this sender.
 	StatusBadAddress Status = 0x06
 
 	// StatusAddressNotHonored: held. The delivery address is ignored and
@@ -206,8 +206,11 @@ func (s Status) String() string {
 // Extension types. An extension is a type, a 16-bit length and a value. It
 // follows a record (inside the record's extension length) or the last record
 // or status of a message. A type with [ExtCritical] set must be understood:
-// a hop that does not know it refuses the record with [StatusUnsupported].
-// Any other unknown type is skipped.
+// a hop that does not know it refuses the record with [StatusUnsupported],
+// as it does a record whose extensions do not parse. Any other unknown type
+// is skipped. After the records of an ANNOUNCE, extensions apply to every
+// record in it, and so does a refusal they cause; a withdrawal is always
+// applied.
 const (
 	// ExtDelivery is where the objects for a topic should arrive
 	// ([Delivery]). On a record it applies to that record; after the records
@@ -242,7 +245,7 @@ var (
 	ErrType = errors.New("interest: unexpected message type")
 	// ErrMalformed: a length or count is inconsistent with the datagram.
 	ErrMalformed = errors.New("interest: malformed message")
-	// ErrTooLarge: the message would exceed [MaxDatagram].
+	// ErrTooLarge: the message is, or would be, longer than [MaxDatagram].
 	ErrTooLarge = errors.New("interest: message exceeds the datagram limit")
 )
 
@@ -277,13 +280,17 @@ type Header struct {
 }
 
 // DecodeHeader reads the header of any interest message. It checks the
-// magic, the protocol version and that the type is an interest type, and
-// nothing else: the version field is for the caller to judge, since the
-// header layout is the same in every version.
+// datagram's size, the magic, the protocol version and that the type is an
+// interest type, and nothing else: the version field is for the caller to
+// judge, since the header layout is the same in every version. A datagram
+// longer than [MaxDatagram] is not an interest message.
 func DecodeHeader(b []byte) (Header, error) {
 	var h Header
 	if len(b) < HeaderSize {
 		return h, ErrShort
+	}
+	if len(b) > MaxDatagram {
+		return h, ErrTooLarge
 	}
 	if binary.BigEndian.Uint32(b[0:4]) != frame.MagicBSV || binary.BigEndian.Uint16(b[4:6]) != frame.ProtoVer {
 		return h, ErrMagic
