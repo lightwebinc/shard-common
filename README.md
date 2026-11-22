@@ -78,3 +78,4 @@ Releases and release notes live on [GitHub Releases](https://github.com/lightweb
 ## License
 
 Apache 2.0; see [LICENSE](LICENSE).
+Third-party notices are in [NOTICE](NOTICE) and [LICENSE-THIRD-PARTY](LICENSE-THIRD-PARTY).

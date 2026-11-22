@@ -22,6 +22,7 @@ jobs:
     with:
       goos: '["linux", "freebsd"]'
       tidy-check: true
+      licences-check: true
       golangci-lint-version: v2.14.0
 
   govulncheck:
