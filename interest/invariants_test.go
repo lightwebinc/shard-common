@@ -90,6 +90,24 @@ func receiverInvariants(r *Receiver) error {
 			return fmt.Errorf("principal %q has %d senders, the index says %d", p, n, r.senders[p])
 		}
 	}
+	// Honored delivery addresses: the reference counts are a recount of the
+	// entries that hold them.
+	dels := map[deliveryRef]int{}
+	for _, s := range r.sessions {
+		for id, e := range s.entries {
+			if e.delivery != "" {
+				dels[deliveryRef{id, e.delivery}]++
+			}
+		}
+	}
+	if len(dels) != len(r.deliveries) || len(dels) != r.stats.Deliveries {
+		return fmt.Errorf("%d delivery addresses held, the index has %d, the counter says %d", len(dels), len(r.deliveries), r.stats.Deliveries)
+	}
+	for ref, n := range dels {
+		if de := r.deliveries[ref]; de == nil || de.refs != n {
+			return fmt.Errorf("a delivery address held by %d senders has the wrong count", n)
+		}
+	}
 	return nil
 }
 

@@ -28,7 +28,8 @@ const (
 // [ExtDelivery] extension. It is meaningful only to the next hop up. A hop
 // that distributes replaces it with its own address when it announces
 // upward; a hop that does not distribute drops it and says so with
-// [StatusAddressNotHonored].
+// [StatusAddressNotHonored]. A receiver distributes when its policy is a
+// [Deliverer].
 //
 //	Offset  Size   Field
 //	  0       1    Kind      1 unicast, 2 multicast, 3 source-specific multicast
