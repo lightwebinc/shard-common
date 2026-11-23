@@ -95,8 +95,10 @@ type Deliverer interface {
 	// Honor decides an address a sender gives for a topic. [StatusOK] keeps
 	// it, and the receiver reports it through OnDelivery and Deliveries;
 	// [StatusAddressNotHonored] holds the topic without it; a refusal, such as
-	// [StatusBadAddress], refuses the record. It is called with the receiver's
-	// lock held, like the rest of the policy.
+	// [StatusBadAddress], refuses the record; any other status is taken as
+	// [StatusAddressNotHonored]. It is called with the receiver's lock held,
+	// like the rest of the policy, and must only decide: it may be asked about
+	// a record that a cap or the rate then refuses.
 	Honor(principal string, src netip.AddrPort, topic TopicID, d Delivery) Status
 }
 
@@ -239,12 +241,6 @@ type change struct {
 	delivery  *Delivery // set for a change of a delivery address
 }
 
-// deliveryRef names one honored delivery address of a topic.
-type deliveryRef struct {
-	topic TopicID
-	key   string // the address, encoded
-}
-
 type deliveryEntry struct {
 	refs int // senders that hold the topic at this address
 	d    Delivery
@@ -272,8 +268,8 @@ type Receiver struct {
 	sessions   map[senderKey]*session
 	senders    map[string]int // sessions per principal
 	principals map[string]*principalState
-	counters   map[string]*principalCounters // while the principal has a sender
-	deliveries map[deliveryRef]*deliveryEntry
+	counters   map[string]*principalCounters         // while the principal has a sender
+	deliveries map[TopicID]map[string]*deliveryEntry // honored addresses by topic, keyed by their encoding
 	events     []change
 	flushing   bool // changes are being delivered
 	stats      ReceiverStats
@@ -307,7 +303,7 @@ func NewReceiver(cfg ReceiverConfig) *Receiver {
 		senders:    make(map[string]int),
 		principals: make(map[string]*principalState),
 		counters:   make(map[string]*principalCounters),
-		deliveries: make(map[deliveryRef]*deliveryEntry),
+		deliveries: make(map[TopicID]map[string]*deliveryEntry),
 	}
 	r.noter, _ = cfg.Policy.(Noter)
 	r.deliverer, _ = cfg.Policy.(Deliverer)
@@ -573,11 +569,6 @@ func (r *Receiver) apply(s *session, rec *Record, seq uint64, now int64, deliver
 	life := r.cfg.Lifetimes.Grant(rec.Lifetime)
 	old := s.entries[rec.Topic].delivery
 	s.entries[rec.Topic] = entry{setAt: now, setSeq: seq, lifetime: life, delivery: keep}
-	if keep != old {
-		// The new address first, so a distributor is never left with neither.
-		r.holdDelivery(rec.Topic, keep)
-		r.dropDelivery(rec.Topic, old)
-	}
 	if exp := now + int64(life)*int64(time.Second); exp < s.nextScan {
 		s.nextScan = exp
 	}
@@ -595,14 +586,23 @@ func (r *Receiver) apply(s *session, rec *Record, seq uint64, now int64, deliver
 		s.digest.Toggle(rec.Topic)
 		r.acquire(s.principal, rec.Topic, metered, now)
 	}
+	if keep != old {
+		// After the topic is live, and the new address before the old one
+		// goes, so a distributor is never left with neither.
+		if keep != "" {
+			r.holdDelivery(rec.Topic, keep, *delivery)
+		}
+		r.dropDelivery(rec.Topic, old)
+	}
 
-	if note != StatusOK {
-		return note
-	}
+	// A note on the topic itself, such as unserved at a relay, says more than
+	// one on its address: a topic with no stream is not served at any address.
 	if r.noter != nil {
-		return r.noter.Note(s.principal, rec.Topic)
+		if n := r.noter.Note(s.principal, rec.Topic); n != StatusOK {
+			return n
+		}
 	}
-	return StatusOK
+	return note
 }
 
 // readExt reads an extension area: the delivery address it gives, if any,
@@ -630,22 +630,20 @@ func readExt(ext []byte) (delivery *Delivery, refuse Status) {
 	return delivery, StatusOK
 }
 
-// holdDelivery records that one more sender holds a topic at an address.
-func (r *Receiver) holdDelivery(t TopicID, key string) {
-	if key == "" {
-		return
+// holdDelivery records that one more sender holds a topic at an address,
+// given both encoded (the key) and parsed.
+func (r *Receiver) holdDelivery(t TopicID, key string, d Delivery) {
+	m := r.deliveries[t]
+	if m == nil {
+		m = make(map[string]*deliveryEntry)
+		r.deliveries[t] = m
 	}
-	ref := deliveryRef{t, key}
-	de := r.deliveries[ref]
+	de := m[key]
 	if de == nil {
-		d, err := ParseDelivery([]byte(key))
-		if err != nil {
-			return // cannot happen: the key is the encoding of a valid address
-		}
-		de = &deliveryEntry{d: *d}
-		r.deliveries[ref] = de
+		de = &deliveryEntry{d: d}
+		m[key] = de
 		r.stats.Deliveries++
-		r.events = append(r.events, change{topic: t, live: true, delivery: d})
+		r.events = append(r.events, change{topic: t, live: true, delivery: &de.d})
 	}
 	de.refs++
 }
@@ -655,15 +653,18 @@ func (r *Receiver) dropDelivery(t TopicID, key string) {
 	if key == "" {
 		return
 	}
-	ref := deliveryRef{t, key}
-	de := r.deliveries[ref]
+	m := r.deliveries[t]
+	de := m[key]
 	if de == nil {
 		return
 	}
 	if de.refs--; de.refs > 0 {
 		return
 	}
-	delete(r.deliveries, ref)
+	delete(m, key)
+	if len(m) == 0 {
+		delete(r.deliveries, t)
+	}
 	r.stats.Deliveries--
 	d := de.d
 	r.events = append(r.events, change{topic: t, live: false, delivery: &d})
@@ -674,16 +675,15 @@ func (r *Receiver) dropDelivery(t TopicID, key string) {
 func (r *Receiver) Deliveries(t TopicID) []Delivery {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	var keys []string
-	for ref := range r.deliveries {
-		if ref.topic == t {
-			keys = append(keys, ref.key)
-		}
+	m := r.deliveries[t]
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
 	}
 	sort.Strings(keys)
 	out := make([]Delivery, 0, len(keys))
 	for _, k := range keys {
-		out = append(out, r.deliveries[deliveryRef{t, k}].d)
+		out = append(out, m[k].d)
 	}
 	return out
 }
@@ -944,22 +944,46 @@ func (r *Receiver) Reevaluate(principal string, now time.Time) {
 			drop[t] = struct{}{}
 		}
 	}
-	if len(drop) > 0 {
-		for _, s := range r.sessions {
-			if s.principal != principal {
-				continue
+	for _, s := range r.sessions {
+		if s.principal != principal {
+			continue
+		}
+		lost := false
+		for t := range drop {
+			if _, ok := s.entries[t]; ok {
+				r.remove(s, t)
+				r.stats.Reevaluated++
+				r.counters[principal].dropped++
+				lost = true
 			}
-			for t := range drop {
-				if _, ok := s.entries[t]; ok {
+		}
+		// The delivery addresses kept, asked again: one the policy now refuses
+		// takes its record with it, one it no longer honors goes alone.
+		if r.deliverer != nil {
+			for t, e := range s.entries {
+				de := r.deliveries[t][e.delivery]
+				if e.delivery == "" || de == nil {
+					continue
+				}
+				switch hs := r.deliverer.Honor(principal, s.addr, t, de.d); {
+				case hs == StatusOK:
+				case hs.Refused():
 					r.remove(s, t)
 					r.stats.Reevaluated++
 					r.counters[principal].dropped++
-					if !s.poke {
-						s.poke = true
-						r.stats.ResyncsQueued++
-					}
+					lost = true
+				default:
+					key := e.delivery
+					e.delivery = ""
+					s.entries[t] = e
+					r.dropDelivery(t, key)
+					lost = true
 				}
 			}
+		}
+		if lost && !s.poke {
+			s.poke = true
+			r.stats.ResyncsQueued++
 		}
 	}
 	r.mu.Unlock()

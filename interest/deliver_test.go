@@ -2,6 +2,7 @@ package interest
 
 import (
 	"net/netip"
+	"strings"
 	"testing"
 	"time"
 )
@@ -211,5 +212,96 @@ func TestDeliveryWithoutDeliverer(t *testing.T) {
 	n.run(time.Second)
 	if c.Status(x) != StatusAddressNotHonored || calls != 0 || len(r.Deliveries(x)) != 0 {
 		t.Fatalf("x %v, %d calls, deliveries %v", c.Status(x), calls, r.Deliveries(x))
+	}
+}
+
+// switchPolicy distributes until told otherwise, so a test can change its
+// answer and re-evaluate.
+type switchPolicy struct {
+	testPolicy
+	answer Status
+}
+
+func (p *switchPolicy) Honor(string, netip.AddrPort, TopicID, Delivery) Status { return p.answer }
+
+// A changed answer applies on Reevaluate: an address the policy now refuses
+// takes its topic with it, and one it no longer honors goes alone.
+func TestDeliveryReevaluated(t *testing.T) {
+	for _, c := range []struct {
+		answer   Status
+		wantLive bool
+	}{{StatusBadAddress, false}, {StatusAddressNotHonored, true}} {
+		n := newSim(t, 65)
+		pol := &switchPolicy{answer: StatusOK}
+		var gone []bool
+		r := NewReceiver(ReceiverConfig{Policy: pol, OnDelivery: func(_ TopicID, _ Delivery, live bool) { gone = append(gone, !live) }})
+		cl := NewClient(ClientConfig{SenderID: 77, Upstreams: []netip.AddrPort{rcvAddr}})
+		n.addReceiver(rcvAddr, r)
+		n.addClient(cliAddr, cl)
+		x := topic("x")
+		cl.Set(x, deliveryExt(t, unicast("[2001:db8::10]:9171")))
+		n.kick()
+		n.run(time.Second)
+		if len(r.Deliveries(x)) != 1 {
+			t.Fatal("the address was not kept")
+		}
+		pol.answer = c.answer
+		r.Reevaluate("p", n.now)
+		if len(r.Deliveries(x)) != 0 || r.IsLive("p", x) != c.wantLive {
+			t.Fatalf("%v: deliveries %v, live %v", c.answer, r.Deliveries(x), r.IsLive("p", x))
+		}
+		if len(gone) != 2 || !gone[1] {
+			t.Fatalf("%v: delivery events (true = gone) %v", c.answer, gone)
+		}
+		checkReceiver(t, r)
+	}
+}
+
+// The calls nest: a topic goes live before its address does, and its
+// address goes before it does.
+func TestDeliveryEventOrder(t *testing.T) {
+	n := newSim(t, 66)
+	var order []string
+	r := NewReceiver(ReceiverConfig{
+		Policy: &deliverPolicy{},
+		OnChange: func(_ string, _ TopicID, live bool) {
+			order = append(order, map[bool]string{true: "topic+", false: "topic-"}[live])
+		},
+		OnDelivery: func(_ TopicID, _ Delivery, live bool) {
+			order = append(order, map[bool]string{true: "addr+", false: "addr-"}[live])
+		},
+	})
+	cl := NewClient(ClientConfig{SenderID: 77, Upstreams: []netip.AddrPort{rcvAddr}})
+	n.addReceiver(rcvAddr, r)
+	n.addClient(cliAddr, cl)
+	x := topic("x")
+	cl.Set(x, deliveryExt(t, unicast("[2001:db8::10]:9171")))
+	n.kick()
+	n.run(time.Second)
+	cl.Remove(x)
+	n.kick()
+	n.run(time.Second)
+	if got := strings.Join(order, " "); got != "topic+ addr+ addr- topic-" {
+		t.Fatalf("order %q", got)
+	}
+}
+
+// A note on the topic itself wins over the note on its address: a topic no
+// path serves is not served at any address. The record's own status says
+// so; a client would also learn it from the notice the same answer carries.
+func TestDeliveryNoteOnTheTopicWins(t *testing.T) {
+	x := topic("x")
+	r := NewReceiver(ReceiverConfig{Policy: notingPolicy{&testPolicy{notes: map[TopicID]Status{x: StatusUnserved}}}})
+	m := Announce{
+		Header:  Header{Version: Version, SenderID: 9, Token: r.token(cliAddr, 9), Seq: 1},
+		Records: []Record{{Topic: x, Lifetime: LifetimeDefault, Ext: deliveryExt(t, unicast("[2001:db8::10]:9171"))}},
+	}
+	pkt, err := m.Append(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := DecodeAck(r.Handle(cliAddr, pkt, time.Unix(1_700_000_000, 0)))
+	if err != nil || len(a.Statuses) != 1 || a.Statuses[0].Status != StatusUnserved {
+		t.Fatalf("answer %+v %v", a, err)
 	}
 }
