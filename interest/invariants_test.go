@@ -90,6 +90,35 @@ func receiverInvariants(r *Receiver) error {
 			return fmt.Errorf("principal %q has %d senders, the index says %d", p, n, r.senders[p])
 		}
 	}
+	// Honored delivery addresses: the reference counts are a recount of the
+	// entries that hold them.
+	type ref struct {
+		topic TopicID
+		key   string
+	}
+	dels := map[ref]int{}
+	for _, s := range r.sessions {
+		for id, e := range s.entries {
+			if e.delivery != "" {
+				dels[ref{id, e.delivery}]++
+			}
+		}
+	}
+	indexed := 0
+	for t, m := range r.deliveries {
+		if len(m) == 0 {
+			return fmt.Errorf("an empty delivery index kept for a topic")
+		}
+		for k, de := range m {
+			indexed++
+			if n := dels[ref{t, k}]; de.refs != n {
+				return fmt.Errorf("a delivery address held by %d senders counts %d", n, de.refs)
+			}
+		}
+	}
+	if len(dels) != indexed || indexed != r.stats.Deliveries {
+		return fmt.Errorf("%d delivery addresses held, the index has %d, the counter says %d", len(dels), indexed, r.stats.Deliveries)
+	}
 	return nil
 }
 
